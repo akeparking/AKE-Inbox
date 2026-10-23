@@ -76,7 +76,9 @@ export class MetaFeedback {
     if (actor.accountId !== Number(row.account_id)) throw new ForbiddenException();
     const b = prepareSchema.parse(input), settings = this.settings();
     await this.eligibility(row, b.sourceType, settings.mode);
-    const time = b.eventName === 'Lead' ? unix(row.created_at) : b.eventName === 'QualifiedLead' ? unix(row.qualified_at) : unix(b.occurredAt);
+    // A historical form imported today keeps Meta's actual submission time.
+    const time = b.eventName === 'Lead' ? unix(b.sourceType === 'instant_form' ? b.leadGeneratedAt : row.created_at)
+      : b.eventName === 'QualifiedLead' ? unix(row.qualified_at) : unix(b.occurredAt);
     if (b.eventName === 'QualifiedLead' && !row.qualified_at) throw new ConflictException('先人工确认有效线索');
     if (b.eventName === 'ConvertedLead' && (!row.qualified_at || !b.occurredAt || time < unix(row.qualified_at))) throw new ConflictException('成交阶段需要真实时间及已确认有效的询盘');
     checkMetaTime(time);

@@ -29,6 +29,7 @@
       const o = el('option', label); o.value = v; source.append(o);
     }
     sourceLabel.append(source); d.append(sourceLabel);
+    if (inquiry.source_kind === 'instant_form') source.value = 'instant_form';
     const eventLabel = el('label', '回传阶段'), event = el('select');
     event.setAttribute('aria-label', '回传阶段');
     for (const [v, label] of Object.entries(names)) { const o = el('option', label); o.value = v; event.append(o); }
@@ -41,7 +42,7 @@
     const note = el('p', '', 'muted'); d.append(note);
     function update() {
       instant.hidden = source.value !== 'instant_form'; converted.hidden = event.value !== 'ConvertedLead';
-      note.textContent = event.value === 'Lead' ? '使用 Inbox 实际收件时间：' + date(inquiry.created_at)
+      note.textContent = event.value === 'Lead' ? (source.value === 'instant_form' ? '使用已核验的 Meta 表单提交时间；导入 Inbox 不会改写原始时间。' : '使用 Inbox 实际收件时间：' + date(inquiry.created_at))
         : event.value === 'QualifiedLead' ? (inquiry.qualified_at ? '使用人工确认有效时间：' + date(inquiry.qualified_at) : '请先在询盘详情中确认有效线索。')
           : '仅用于已核验的真实成交；填写成交依据。';
     }

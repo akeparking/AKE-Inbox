@@ -106,6 +106,8 @@ describe.skipIf(!process.env.META_FEEDBACK_TEST_DATABASE_URL)('Manual Meta feedb
     const a = await ready('Lead', b);
     const event = repo.unpack((await repo.db.query('SELECT payload FROM marketing_meta_feedback WHERE id=$1', [a.id])).rows[0].payload).data[0];
     expect(event).toMatchObject({ action_source: 'system_generated', custom_data: { event_source: 'crm' }, user_data: { lead_id: b.metaLeadId } });
+    expect(event.event_time).toBe(Math.floor(new Date(b.leadGeneratedAt).getTime()/1000));
+    expect(event.event_time).not.toBe(Math.floor(new Date(row.created_at).getTime()/1000));
     await expect(meta.prepare(admin, { ...row, id: randomUUID() }, { ...prep(), ...b })).rejects.toThrow('其他询盘');
     await expect(ready('QualifiedLead', { ...b, metaLeadId: '1234567890123457' })).rejects.toThrow('其他来源');
   });
@@ -126,6 +128,7 @@ describe.skipIf(!process.env.META_FEEDBACK_TEST_DATABASE_URL)('Manual Meta feedb
   it('blocks missing consent, stale events, fake native IDs and future conversion time', async () => {
     await expect(meta.prepare(admin, { ...row, created_at: new Date(Date.now()-8*86400000) }, prep())).rejects.toThrow('7 天');
     await expect(ready('Lead', { sourceType: 'instant_form', metaLeadId: '123' })).rejects.toThrow();
+    await expect(ready('Lead', { sourceType: 'instant_form', metaLeadId: '1234567890123456', leadGeneratedAt: new Date(Date.now()-8*86400000).toISOString(), consentConfirmed: true })).rejects.toThrow('7 天');
     await expect(ready('ConvertedLead', { occurredAt: new Date(Date.now()+86400000).toISOString() })).rejects.toThrow('7 天');
     await repo.db.query("UPDATE marketing_consents SET choices='{}' WHERE id=$1", [row.consent_id]);
     await expect(ready()).rejects.toThrow('同意');
