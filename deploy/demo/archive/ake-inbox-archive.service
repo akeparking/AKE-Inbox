@@ -1,0 +1,12 @@
+[Unit]
+Description=Reconcile AKE Inbox message and attachment archive
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/ai-sales-demo
+ExecStart=/bin/bash /opt/ai-sales-demo/deploy/archive/reconcile-archive.sh
+TimeoutStartSec=600
+Nice=15
+IOSchedulingClass=idle

@@ -1,0 +1,20 @@
+# v0.2 overlay; existing Chatwoot/WhatsApp volumes are retained.
+x-inbox-control: &inbox-control
+  env_file: ./private/inbox-control.env
+  volumes:
+    - ./deploy/archive/ake_inbox_control.rb:/app/config/initializers/ake_inbox_control.rb:ro
+    - ./deploy/archive/ake_brand.rb:/app/config/initializers/ake_brand.rb:ro
+    - ./deploy/ake-logo.png:/app/public/ake-logo.png:ro
+services:
+  chatwoot-web:
+    <<: *inbox-control
+  chatwoot-worker:
+    <<: *inbox-control
+  sales-core:
+    volumes:
+      - ./runtime/inbox-exports:/var/lib/ake-exports
+      - ./runtime/inbox-archive:/var/lib/ake-archive:ro
+      - ./private/inbox-font.otf:/opt/ake-font.otf:ro
+    extra_hosts: ['host.docker.internal:host-gateway']
+    mem_limit: 320m
+    memswap_limit: 512m

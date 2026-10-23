@@ -1,0 +1,63 @@
+import { Module } from "@nestjs/common";
+import { APP_GUARD } from "@nestjs/core";
+import { ApiKeyGuard } from "./common/api-key.guard";
+import { ConversionController } from "./conversion/conversion.controller";
+import { ConversionQueueService } from "./conversion/conversion-queue.service";
+import { ConversionService } from "./conversion/conversion.service";
+import { CrmController } from "./crm/crm.controller";
+import { DemoSeeder } from "./database/demo-seeder.service";
+import { HealthController } from "./health.controller";
+import { IngestionService } from "./ingestion/ingestion.service";
+import { LeadsController } from "./ingestion/leads.controller";
+import { WebhooksController } from "./ingestion/webhooks.controller";
+import { IntegrationsController } from "./integrations/integrations.controller";
+import { IntegrationsService } from "./integrations/integrations.service";
+import { OkkiController } from "./integrations/okki.controller";
+import { OkkiService } from "./integrations/okki.service";
+import { OpenApiController } from "./openapi.controller";
+import { RequirementsController } from "./requirements/requirements.controller";
+import { RequirementsService } from "./requirements/requirements.service";
+import { revenueStoreProvider } from "./store/store.provider";
+import { InboxController } from "./inbox/inbox.controller";
+import { InboxService } from "./inbox/inbox.service";
+import { InboxV2Controller } from './inbox-v2/controller';
+import { InboxRepository } from './inbox-v2/repository';
+import { InboxAutomation } from './inbox-v2/automation.service';
+import { Chatwoot } from './inbox-v2/chatwoot';
+import { OkkiWriter } from './inbox-v2/okki';
+import { InboxExports } from './inbox-v2/exports';
+import { MarketingService } from './marketing/service';
+import { MarketingController } from './marketing/controller';
+
+@Module({
+  controllers: [
+    MarketingController,
+    InboxV2Controller,
+    InboxController,
+    HealthController,
+    LeadsController,
+    WebhooksController,
+    CrmController,
+    ConversionController,
+    IntegrationsController,
+    OkkiController,
+    OpenApiController,
+    RequirementsController,
+  ],
+  providers: [
+    MarketingService,
+    InboxRepository, InboxAutomation, Chatwoot, OkkiWriter, InboxExports,
+    InboxService,
+    revenueStoreProvider,
+    IngestionService,
+    ConversionService,
+    ConversionQueueService,
+    IntegrationsService,
+    OkkiService,
+    DemoSeeder,
+    RequirementsService,
+    { provide: APP_GUARD, useClass: ApiKeyGuard },
+  ],
+  exports: [ConversionService, IngestionService, revenueStoreProvider],
+})
+export class AppModule {}

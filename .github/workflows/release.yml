@@ -1,0 +1,62 @@
+name: Publish an existing version tag
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag, for example v0.2.1. Existing releases are never overwritten.
+        required: true
+        type: string
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate tag and preserve existing releases
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+          git rev-parse --verify "refs/tags/$RELEASE_TAG^{commit}"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo 'Existing releases are immutable by policy; publish a new version.'
+            exit 1
+          fi
+          git checkout --detach "refs/tags/$RELEASE_TAG"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Verify source before packaging
+        run: |
+          npm ci
+          npm run build -w @ake/contracts
+          npm test
+          npm run test:channels
+          npm run test:google-guards
+          npm run typecheck
+          npm run build
+          npm run check:public
+          npm audit --audit-level=high
+          curl -fsSL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz -o /tmp/gitleaks.tar.gz
+          echo '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  /tmp/gitleaks.tar.gz' | sha256sum -c -
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          /tmp/gitleaks git . --redact=100 --no-banner --log-opts=--all
+      - name: Archive exact tag and publish new assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/ake-release
+          git archive --format=zip --prefix="AKE-Inbox-$RELEASE_TAG/" -o "/tmp/ake-release/AKE-Inbox-$RELEASE_TAG-source.zip" "refs/tags/$RELEASE_TAG"
+          git archive --format=tar.gz --prefix="AKE-Inbox-$RELEASE_TAG/" -o "/tmp/ake-release/AKE-Inbox-$RELEASE_TAG-source.tar.gz" "refs/tags/$RELEASE_TAG"
+          cd /tmp/ake-release
+          sha256sum *.zip *.tar.gz > SHA256SUMS.txt
+          gh release create "$RELEASE_TAG" --verify-tag --title "AKE-Inbox $RELEASE_TAG" --generate-notes --draft ./*
+          echo 'Draft created. Review the PostgreSQL CI result and release notes before publishing.'

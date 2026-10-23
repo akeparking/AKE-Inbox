@@ -1,0 +1,15 @@
+name: B2B workflow request
+description: Describe a customer workflow and measurable outcome.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Business problem and target users
+      description: Use anonymized examples and describe the current workaround.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Proposed behavior and acceptance criteria
+      description: Distinguish company, contact, inquiry and opportunity; state authorization and integration boundaries.

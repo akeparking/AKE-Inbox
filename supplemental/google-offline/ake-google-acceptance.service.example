@@ -1,0 +1,11 @@
+[Unit]
+Description=Bounded, explicitly configured Google offline acceptance
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/ake-inbox/google-acceptance.env
+# Replace this path with your checkout. No schedule is installed automatically.
+ExecStart=/usr/bin/python3 /opt/ake-inbox/supplemental/google-offline/google-job.py
+TimeoutStartSec=5min
+UMask=0077
+Environment=PYTHONUNBUFFERED=1

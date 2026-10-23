@@ -1,0 +1,11 @@
+[Unit]
+Description=Optional bounded acceptance follow-up; disabled until explicitly installed
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=15min
+AccuracySec=1s
+Unit=ake-google-acceptance.service
+
+[Install]
+WantedBy=timers.target

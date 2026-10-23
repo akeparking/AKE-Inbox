@@ -1,0 +1,69 @@
+name: CI
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  ruby-guards:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4'
+      - run: gem install --no-document minitest:5.26.2 activesupport:7.2.3.1
+      - run: ruby test/inbox-channels/archive_test.rb
+      - run: ruby test/inbox-channels/mail-loop-guard-test.rb
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci-fictional-data-only
+          POSTGRES_DB: sales_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d sales_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://postgres:ci-fictional-data-only@127.0.0.1:5432/sales_test
+      TEST_DATABASE_URL: postgresql://postgres:ci-fictional-data-only@127.0.0.1:5432/sales_test
+      INBOX_TEST_DATABASE_URL: postgresql://postgres:ci-fictional-data-only@127.0.0.1:5432/inbox_test
+      MARKETING_TEST_DATABASE_URL: postgresql://postgres:ci-fictional-data-only@127.0.0.1:5432/marketing_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Check public files and Git history for secrets
+        run: |
+          curl -fsSL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz -o /tmp/gitleaks.tar.gz
+          echo '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  /tmp/gitleaks.tar.gz' | sha256sum -c -
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          /tmp/gitleaks dir . --redact=100 --no-banner
+          /tmp/gitleaks git . --redact=100 --no-banner --log-opts=--all
+          npm run check:public
+      - run: npm ci --no-fund
+      - name: Create separate databases for independent test suites
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE inbox_test'
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE marketing_test'
+      - run: npm run build -w @ake/contracts
+      - run: npm run migrate
+      - run: npm run migrate
+        env:
+          DATABASE_URL: ${{ env.MARKETING_TEST_DATABASE_URL }}
+      - run: npm test
+      - run: npm run test:channels
+      - run: npm run test:google-guards
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm run check:public
+      - run: npm audit --audit-level=high

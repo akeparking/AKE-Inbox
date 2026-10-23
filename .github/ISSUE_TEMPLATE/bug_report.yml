@@ -1,0 +1,23 @@
+name: Bug report
+description: Report a reproducible problem using fictional data.
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps, expected result, actual result
+      description: Include OS, Node version and deployment mode. Remove tokens, emails, phone numbers and customer messages.
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy
+      options:
+        - label: I have removed credentials and customer data from this report.
+          required: true

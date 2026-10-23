@@ -1,0 +1,161 @@
+name: ${LOCAL_COMPOSE_PROJECT:-ake-inbox-marketing-local}
+services:
+  postgres:
+    image: ${LOCAL_POSTGRES_IMAGE:-pgvector/pgvector:pg16}
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${LOCAL_DATABASE_PASSWORD}
+      POSTGRES_DB: chatwoot_test
+    volumes:
+      - pg:/var/lib/postgresql/data
+      - ${LOCAL_RUNTIME_ROOT}/private/init.sql:/docker-entrypoint-initdb.d/01-core.sql:ro
+    networks: [local]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -h 127.0.0.1 -U postgres]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+  redis:
+    image: ${LOCAL_REDIS_IMAGE:-redis:7.4-alpine}
+    volumes: [redis:/data]
+    networks: [local]
+  web:
+    image: chatwoot/chatwoot@sha256:b419dded7e9d2f54a24fd427b74ba7e6069d601b500618045c1eb6c01a1cc9a1
+    env_file: ${LOCAL_RUNTIME_ROOT}/private/chatwoot.env
+    entrypoint: ['/bin/sh', '-c']
+    command: ['rm -f /app/tmp/pids/server.pid && exec bundle exec rails server -b 0.0.0.0 -p 3000']
+    volumes:
+      - storage:/app/storage
+      - ${INBOX_SOURCE_ROOT}/deploy/demo/archive:/opt/ake-archive:ro
+      - ${INBOX_SOURCE_ROOT}/deploy/demo/archive/ake_inbox_control.rb:/app/config/initializers/ake_inbox_control.rb:ro
+      - ${INBOX_SOURCE_ROOT}/deploy/demo/archive/ake_archive.rb:/app/config/initializers/ake_archive.rb:ro
+      - ${INBOX_SOURCE_ROOT}/deploy/demo/archive/ake_archive_capture_job.rb:/app/app/jobs/ake_archive_capture_job.rb:ro
+      - ${LOCAL_RUNTIME_ROOT}/archive:/var/lib/ake-archive
+      - ${INBOX_SOURCE_ROOT}/test/inbox-channels:/opt/ake-tests:ro
+      - ${LOCAL_RUNTIME_ROOT}/private:/tmp/ake-fixtures
+    networks: [local]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_started}
+  core:
+    image: ${LOCAL_NODE_IMAGE}
+    entrypoint: [node]
+    command: [apps/revenue-core/dist/main.js]
+    working_dir: /workspace
+    env_file: ${LOCAL_RUNTIME_ROOT}/private/core.env
+    volumes: ['${INBOX_SOURCE_ROOT}:/workspace:ro','${LOCAL_RUNTIME_ROOT}/archive:/archive:ro']
+    networks: [local]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_started}
+    profiles: [marketing]
+  native-worker:
+    image: chatwoot/chatwoot@sha256:b419dded7e9d2f54a24fd427b74ba7e6069d601b500618045c1eb6c01a1cc9a1
+    env_file: ${LOCAL_RUNTIME_ROOT}/private/chatwoot.env
+    entrypoint: [bundle]
+    command: [exec, sidekiq, '-C', config/sidekiq.yml]
+    volumes:
+      - storage:/app/storage
+      - ${INBOX_SOURCE_ROOT}/deploy/demo/archive:/opt/ake-archive:ro
+      - ${INBOX_SOURCE_ROOT}/deploy/demo/archive/ake_inbox_control.rb:/app/config/initializers/ake_inbox_control.rb:ro
+      - ${INBOX_SOURCE_ROOT}/deploy/demo/archive/ake_archive.rb:/app/config/initializers/ake_archive.rb:ro
+      - ${INBOX_SOURCE_ROOT}/deploy/demo/archive/ake_archive_capture_job.rb:/app/app/jobs/ake_archive_capture_job.rb:ro
+      - ${LOCAL_RUNTIME_ROOT}/archive:/var/lib/ake-archive
+    networks: [local]
+    profiles: [marketing]
+  worker:
+    image: ${LOCAL_NODE_IMAGE}
+    entrypoint: [node]
+    command: [apps/revenue-core/dist/worker.js]
+    working_dir: /workspace
+    env_file: ${LOCAL_RUNTIME_ROOT}/private/core.env
+    volumes: ['${INBOX_SOURCE_ROOT}:/workspace:ro','${LOCAL_RUNTIME_ROOT}/archive:/archive:ro']
+    networks: [local]
+    profiles: [marketing]
+  test-site:
+    image: ${LOCAL_NODE_IMAGE}
+    entrypoint: [node]
+    command: [test/marketing/site.mjs]
+    working_dir: /workspace
+    environment:
+      MARKETING_PUBLIC_CORE_URL: http://localhost:${LOCAL_CORE_PORT:-14622}
+      MARKETING_TEST_SITE_ORIGIN: http://localhost:${LOCAL_SITE_PORT:-14621}
+      MARKETING_FRAME_ORIGIN: http://127.0.0.1:${LOCAL_FRAME_PORT:-14629}
+    volumes: ['${INBOX_SOURCE_ROOT}:/workspace:ro']
+    networks: [local]
+    profiles: [marketing]
+  gateway:
+    image: ${LOCAL_NODE_IMAGE}
+    entrypoint: [node]
+    command: [test/marketing/gateway.mjs]
+    working_dir: /workspace
+    ports: ['127.0.0.1:${LOCAL_INBOX_PORT:-14620}:14620','127.0.0.1:${LOCAL_SITE_PORT:-14621}:14621','127.0.0.1:${LOCAL_CORE_PORT:-14622}:14622','127.0.0.1:${LOCAL_PG_PORT:-14623}:14623','127.0.0.1:${LOCAL_REDIS_PORT:-14624}:14624','127.0.0.1:${LOCAL_WP_PORT:-14626}:14626']
+    volumes: ['${INBOX_SOURCE_ROOT}:/workspace:ro']
+    networks: [local, edge]
+    profiles: [marketing]
+  frame-backend:
+    image: ${LOCAL_NODE_IMAGE}
+    entrypoint: [node]
+    command: [test/marketing/frame-backend.mjs]
+    working_dir: /workspace
+    environment:
+      LOCAL_RUNTIME_ROOT: /runtime
+      FRAME_CONFIG_PATH: /private/frame.env
+      FRAME_CORE_URL: http://core:4100
+      FRAME_HOST: 0.0.0.0
+      FRAME_CHILD_ORIGIN: http://127.0.0.1:${LOCAL_FRAME_PORT:-14629}
+      FRAME_PARENT_ORIGIN: http://localhost:${LOCAL_SITE_PORT:-14621}
+    ports: ['127.0.0.1:${LOCAL_FRAME_PORT:-14629}:14629']
+    volumes:
+      - ${INBOX_SOURCE_ROOT}:/workspace:ro
+      - ${LOCAL_RUNTIME_ROOT}/private/frame.env:/private/frame.env:ro
+      - ${LOCAL_RUNTIME_ROOT}/private/frame-receipts:/runtime/private/frame-receipts
+    networks: [local, edge]
+    profiles: [marketing]
+  wordpress-db:
+    image: dockerproxy.net/library/mariadb:10.6
+    env_file: ${LOCAL_RUNTIME_ROOT}/private/wordpress.env
+    volumes: [wordpress-db:/var/lib/mysql]
+    networks: [local]
+    profiles: [wordpress]
+  wordpress:
+    image: ake-new-website:wp-sqlite
+    entrypoint: [apache2-foreground]
+    env_file: ${LOCAL_RUNTIME_ROOT}/private/wordpress.env
+    volumes:
+      - ${LOCAL_RUNTIME_ROOT}/wordpress:/var/www/html
+      - ${INBOX_SOURCE_ROOT}/deploy/marketing/wordpress:/var/www/html/wp-content/plugins/ake-marketing:ro
+    networks: [local]
+    profiles: [wordpress]
+  wordpress-cron:
+    image: ake-new-website:wp-sqlite
+    entrypoint: [/bin/sh, '-c']
+    command: ['while :; do php /var/www/html/wp-content/plugins/ake-marketing/cron-receipts.php; sleep 30; done']
+    env_file: ${LOCAL_RUNTIME_ROOT}/private/wordpress.env
+    volumes:
+      - ${LOCAL_RUNTIME_ROOT}/wordpress:/var/www/html
+      - ${INBOX_SOURCE_ROOT}/deploy/marketing/wordpress:/var/www/html/wp-content/plugins/ake-marketing:ro
+    networks: [local]
+    profiles: [wordpress]
+  waha:
+    # Official gows-2026.9.2 amd64 config; manifest digest recorded in acceptance evidence.
+    image: sha256:5d8371157888ea4725f610b8094f92e5342190e61a21fd0f0812d4bdf0d3112e
+    env_file: ${LOCAL_RUNTIME_ROOT}/private/waha.env
+    ports: ['127.0.0.1:14627:3000']
+    volumes:
+      - waha-sessions:/app/.sessions
+      - waha-media:/tmp/whatsapp-files
+      - ${INBOX_SOURCE_ROOT}/deploy/marketing/waha-guard.cjs:/opt/ake/waha-guard.cjs:ro
+    networks: [local, edge]
+    profiles: [waha]
+networks:
+  local:
+    internal: true
+  edge:
+volumes:
+  pg:
+  redis:
+  storage:
+  wordpress-db:
+  waha-sessions:
+  waha-media:

@@ -1,0 +1,145 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "reply": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "needsHuman": {
+      "type": "boolean"
+    },
+    "hasProductClaims": {
+      "type": "boolean"
+    },
+    "knowledgeIds": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "askedFields": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "fields": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "company": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "country": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "city": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "projectLocation": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "projectType": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "currency": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timeline": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parkingSpaces": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "estimatedAmount": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "products": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "company",
+        "country",
+        "city",
+        "projectLocation",
+        "projectType",
+        "currency",
+        "timeline",
+        "parkingSpaces",
+        "estimatedAmount",
+        "products"
+      ]
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "quote": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "stated",
+              "inferred"
+            ]
+          }
+        },
+        "required": [
+          "field",
+          "quote",
+          "kind"
+        ]
+      }
+    }
+  },
+  "required": [
+    "reply",
+    "summary",
+    "needsHuman",
+    "hasProductClaims",
+    "knowledgeIds",
+    "askedFields",
+    "fields",
+    "evidence"
+  ]
+}

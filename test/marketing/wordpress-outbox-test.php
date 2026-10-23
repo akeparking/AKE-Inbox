@@ -1,0 +1,43 @@
+<?php
+// Run only inside the isolated local WordPress container. All inquiry data is fictional.
+require '/var/www/html/wp-load.php';
+if(!defined('AKE_MARKETING_SERVER_URL')||parse_url(AKE_MARKETING_SERVER_URL,PHP_URL_HOST)!=='core')throw new Exception('Local core required');
+function demand($value,$message){if(!$value)throw new Exception($message);}
+$rows=array();$suffix=bin2hex(random_bytes(6));$receipt='outbox-reliability-'.$suffix;
+$payload=array('formId'=>'a0000000-0000-4000-8000-000000000002','version'=>1,'fields'=>array('name'=>'Fictional reliability visitor','email'=>$suffix.'@example.invalid','company'=>'Fictional outbox acceptance','message'=>'Local persisted test receipt only'));
+add_option('ake_qa_receipt_'.hash('sha256',$receipt),array('persisted'=>true,'payload'=>$payload),'','no');
+demand(ake_marketing_record_receipt($receipt,$payload),'Unable to save receipt');$name=ake_marketing_receipt_name($receipt);
+wp_clear_scheduled_hook('ake_marketing_deliver_receipt',array($name));update_option('ake_marketing_recovery_cursor',0,false);ake_marketing_recover_receipts();
+demand(wp_next_scheduled('ake_marketing_deliver_receipt',array($name))!==false,'Recovery did not schedule durable receipt');
+$rows[]=array('id'=>'O01','status'=>'passed','proof'=>'durable pending receipt rescheduled after simulated scheduling interruption');
+$calls=0;$fail=function($pre,$args,$url)use(&$calls){if(strpos($url,AKE_MARKETING_SERVER_URL)!==0)return $pre;$calls++;return new WP_Error('fictional_transport_timeout');};
+add_filter('pre_http_request',$fail,10,3);
+for($i=0;$i<6;$i++)ake_marketing_deliver_receipt($name);
+remove_filter('pre_http_request',$fail,10);$record=get_option($name);
+demand($calls===5&&$record['state']==='review'&&isset($record['encrypted']),'Retries were not bounded or payload was lost');
+$rows[]=array('id'=>'O02','status'=>'passed','attempts'=>5,'proof'=>'transport failures retain encrypted receipt and stop in review');
+wp_set_current_user(0);demand(is_wp_error(ake_marketing_retry_receipt($name)),'Anonymous retry allowed');
+$rows[]=array('id'=>'O03','status'=>'passed','proof'=>'retry requires manage_options');
+$admins=get_users(array('role'=>'administrator','number'=>1));demand(count($admins)===1,'Local administrator absent');wp_set_current_user($admins[0]->ID);
+demand(ake_marketing_retry_receipt($name)===true,'Admin retry rejected');$record=get_option($name);
+demand($record['attempts']===0&&$record['totalAttempts']===5&&count($record['retryAudit'])===1,'Manual retry lost audit');
+$rows[]=array('id'=>'O04','status'=>'passed','proof'=>'administrator retry keeps original encrypted payload, receipt and cumulative attempt audit');
+$first=null;$lose=function($pre,$args,$url)use(&$lose,&$first){if(strpos($url,AKE_MARKETING_SERVER_URL)!==0)return $pre;remove_filter('pre_http_request',$lose,10);$r=wp_remote_post($url,$args);$first=json_decode(wp_remote_retrieve_body($r),true);return new WP_Error('fictional_lost_response_after_actual_local_commit');};
+add_filter('pre_http_request',$lose,10,3);ake_marketing_deliver_receipt($name);
+demand(($first['confirmed']??false)===true&&get_option($name)['state']==='pending','Lost-response scenario failed');
+ake_marketing_deliver_receipt($name);$accepted=get_option($name);
+demand($accepted['state']==='accepted'&&$accepted['inquiryId']===$first['inquiryId']&&!isset($accepted['encrypted']),'Retry duplicated inquiry or retained accepted payload');
+ake_marketing_deliver_receipt($name);demand(get_option($name)['totalAttempts']===$accepted['totalAttempts'],'Accepted receipt resent');
+$rows[]=array('id'=>'O05','status'=>'passed','proof'=>'real local commit with response lost; replay read back same inquiry, no resend after acceptance');
+$changed=$payload;$changed['fields']['message']='Different fictional payload';demand(ake_marketing_record_receipt($receipt,$changed)===false,'Conflicting replay falsely accepted');demand(get_option($name)===$accepted,'Conflict overwrote original receipt');
+$rows[]=array('id'=>'O06','status'=>'passed','proof'=>'same receipt with different payload rejected without overwrite');
+$second=$receipt.'-lock';demand(ake_marketing_record_receipt($second,$payload),'Lock fixture absent');$other=ake_marketing_receipt_name($second);$lease=ake_marketing_receipt_lock($other);demand($lease!==false,'Could not hold lease');
+add_filter('pre_http_request',$fail,10,3);$before=$calls;ake_marketing_deliver_receipt($other);demand($calls===$before,'Concurrent delivery bypassed lease');ake_marketing_receipt_unlock($other,$lease);update_option($other.'_lock',(time()-1).':expired-fixture',false);ake_marketing_deliver_receipt($other);demand($calls===$before+1,'Expired lease did not recover');remove_filter('pre_http_request',$fail,10);
+$rows[]=array('id'=>'O07','status'=>'passed','proof'=>'overlap suppressed; expired lease recovered');
+$unconfirmed=function($pre,$args,$url){return strpos($url,AKE_MARKETING_SERVER_URL)===0?array('headers'=>array(),'body'=>'{"confirmed":true}','response'=>array('code'=>200,'message'=>'OK'),'cookies'=>array()):$pre;};
+add_filter('pre_http_request',$unconfirmed,10,3);ake_marketing_deliver_receipt($other);remove_filter('pre_http_request',$unconfirmed,10);demand(get_option($other)['state']==='pending'&&get_option($other)['lastError']==='unconfirmed_receipt','HTTP success mislabelled as confirmed intake');
+$rows[]=array('id'=>'O08','status'=>'passed','proof'=>'HTTP 200 without persisted inquiry ID is not acceptance');
+ake_marketing_deliver_receipt($other);demand(get_option($other)['state']==='accepted','Final local fixture not accepted');
+ob_start();ake_marketing_receipts_page();$html=ob_get_clean();demand(strpos($html,'Inbox 收件投递')!==false&&strpos($html,$payload['fields']['email'])===false&&strpos($html,$payload['fields']['message'])===false,'Admin page exposes customer payload');
+$rows[]=array('id'=>'O09','status'=>'passed','proof'=>'native WordPress status page omits customer contents');
+echo json_encode(array('result'=>'passed','boundary'=>'local WordPress database, signed local Core receipts and controlled transport failures; no external write','cases'=>$rows),JSON_UNESCAPED_UNICODE)."\n";

@@ -1,0 +1,230 @@
+import { sha256 } from "../common/crypto";
+import { loadConfig, type AppConfig } from "../config";
+import type { QualifiedContext } from "../store/store.types";
+import type { ConversionReceiptStages } from '@ake/contracts';
+
+export interface AdapterResult {
+  responseId?: string;
+  diagnosticStatus: "unknown" | "matched" | "unmatched" | "warning";
+  receiptStages?:ConversionReceiptStages;
+  validatedOnly?:boolean;
+}
+
+export class AdapterError extends Error {
+  constructor(
+    message: string,
+    readonly code: string,
+    readonly retryable: boolean,
+    readonly uncertain = false,
+  ) {
+    super(message);
+  }
+}
+
+export interface AdsConversionAdapter {
+  validateConfiguration(): Promise<{ valid: boolean; message: string }>;
+  buildQualifiedPayload(context: QualifiedContext): Record<string, unknown>;
+  send(payload: Record<string, unknown>): Promise<AdapterResult>;
+  queryDiagnostics(responseId: string): Promise<AdapterResult["diagnosticStatus"]>;
+  queryReceipt?(responseId:string):Promise<ConversionReceiptStages>;
+  refreshCredentials(): Promise<void>;
+}
+
+function identifierMap(context: QualifiedContext) {
+  return new Map(context.identifiers.map((item) => [item.type, item.value]));
+}
+
+function userHashes(context: QualifiedContext) {
+  return {
+    email: context.lead.email ? sha256(context.lead.email) : undefined,
+    phone: context.lead.phone ? sha256(context.lead.phone) : undefined,
+    externalId: sha256(context.lead.personId || context.lead.id),
+  };
+}
+
+export class MockAdsAdapter implements AdsConversionAdapter {
+  constructor(private readonly provider: string) {}
+  async validateConfiguration() { return { valid: true, message: `${this.provider} mock adapter ready` }; }
+  buildQualifiedPayload(context: QualifiedContext): Record<string, unknown> {
+    return {
+      provider: this.provider,
+      eventName: "QualifiedLead",
+      eventId: context.delivery.eventId,
+      occurredAt: context.delivery.occurredAt,
+      sourceLead: context.lead.id,
+      opportunity: context.opportunity?.id,
+      mode: "mock",
+    };
+  }
+  async send(payload: Record<string, unknown>): Promise<AdapterResult> {
+    return { responseId: `mock_${sha256(JSON.stringify(payload)).slice(0, 16)}`, diagnosticStatus: "unknown", receiptStages:{validation:'passed',acceptance:'mock',processing:'unknown',matching:'unknown'} };
+  }
+  async queryDiagnostics(): Promise<AdapterResult["diagnosticStatus"]> {
+    return "unknown";
+  }
+  async refreshCredentials() {}
+}
+
+export class MetaAdsAdapter implements AdsConversionAdapter {
+  constructor(private readonly config: AppConfig = loadConfig()) {}
+
+  async validateConfiguration() {
+    const valid = Boolean(this.config.meta.accessToken && this.config.meta.datasetId);
+    return { valid, message: valid ? "Meta dataset configuration present" : "Meta access token or dataset ID missing" };
+  }
+
+  buildQualifiedPayload(context: QualifiedContext): Record<string, unknown> {
+    const ids = identifierMap(context);
+    const hashes = userHashes(context);
+    const userData: Record<string, unknown> = {};
+    const leadId = ids.get("meta_leadgen_id");
+    if (leadId) userData.lead_id = leadId;
+    if (ids.get("meta_fbc")) userData.fbc = ids.get("meta_fbc");
+    if (ids.get("meta_fbp")) userData.fbp = ids.get("meta_fbp");
+    if (ids.get("meta_ctwa_clid")) userData.ctwa_clid = ids.get("meta_ctwa_clid");
+    if (hashes.email) userData.em = [hashes.email];
+    if (hashes.phone) userData.ph = [hashes.phone];
+    userData.external_id = [hashes.externalId];
+    return {
+      data: [
+        {
+          event_name: "QualifiedLead",
+          event_time: Math.floor(new Date(context.delivery.occurredAt).getTime() / 1000),
+          event_id: context.delivery.eventId,
+          ...(context.lead.sourceKind === "website" ? { action_source: "website" } : {}),
+          user_data: userData,
+          custom_data: {
+            event_source: "crm",
+            lead_event_source: this.config.meta.leadEventSource,
+            crm_lead_id: context.lead.id,
+            opportunity_id: context.opportunity?.id,
+            lead_stage: "Qualified Lead",
+          },
+        },
+      ],
+    };
+  }
+
+  async send(payload: Record<string, unknown>): Promise<AdapterResult> {
+    const { accessToken, datasetId, graphVersion } = this.config.meta;
+    if (!accessToken || !datasetId) throw new AdapterError("Meta live credentials are incomplete", "META_CONFIG", false);
+    const url = new URL(`https://graph.facebook.com/${graphVersion}/${datasetId}/events`);
+    url.searchParams.set("access_token", accessToken);
+    const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const code = String(body?.error?.code || response.status);
+      throw new AdapterError(body?.error?.message || "Meta request failed", code, response.status === 429 || response.status >= 500);
+    }
+    return { responseId: body.fbtrace_id || body.events_received?.toString() || `meta_${Date.now()}`, diagnosticStatus: "unknown" };
+  }
+
+  async queryDiagnostics(): Promise<AdapterResult["diagnosticStatus"]> {
+    return "unknown";
+  }
+
+  async refreshCredentials() {
+    throw new AdapterError("Meta credential rotation requires an operator-managed secret update", "META_REFRESH_EXTERNAL", false);
+  }
+}
+
+export class GoogleAdsAdapter implements AdsConversionAdapter {
+  constructor(private readonly config: AppConfig = loadConfig()) {}
+
+  async validateConfiguration() {
+    const valid = Boolean(this.config.google.accessToken && this.config.google.adsAccountId && this.config.google.conversionActionId);
+    return { valid, message: valid ? "Google Data Manager configuration present" : "Google token, account or conversion action missing" };
+  }
+
+  buildQualifiedPayload(context: QualifiedContext): Record<string, unknown> {
+    const ids = identifierMap(context);
+    const hashes = userHashes(context);
+    const adIdentifiers: Record<string, string> = {};
+    const gclid = ids.get("google_gclid") || ids.get("google_gcl_id");
+    if (gclid) adIdentifiers.gclid = gclid;
+    if (ids.get("google_gbraid")) adIdentifiers.gbraid = ids.get("google_gbraid")!;
+    if (ids.get("google_wbraid")) adIdentifiers.wbraid = ids.get("google_wbraid")!;
+    if (ids.get("google_session_attributes")) adIdentifiers.sessionAttributes = ids.get("google_session_attributes")!;
+    const userIdentifiers = [
+      hashes.email ? { emailAddress: sha256(context.lead.email!.trim().toLowerCase().replace(/^(.*)@(gmail\.com|googlemail\.com)$/,(_,name,domain)=>name.replace(/\./g,'')+'@'+domain)).toUpperCase() } : undefined,
+      hashes.phone && /^\+[1-9]\d{6,14}$/.test(context.lead.phone!) ? { phoneNumber: hashes.phone.toUpperCase() } : undefined,
+    ].filter(Boolean);
+    const consent=context.lead.rawAttribution.metadata?.consent as Record<string,string>|undefined;
+    if(context.delivery.mode==='live'&&(!consent||consent.adUserData!=='granted'||consent.adStorage!=='granted'))throw new AdapterError('Explicit ad storage and user data consent required','GOOGLE_CONSENT',false);
+    return {
+      destinations: [
+        {
+          operatingAccount: { accountType: "GOOGLE_ADS", accountId: this.config.google.adsAccountId },
+          productDestinationId: this.config.google.conversionActionId,
+        },
+      ],
+      events: [
+        {
+          eventTimestamp: context.delivery.occurredAt,
+          transactionId: context.delivery.eventId,
+          eventSource: "OTHER",
+          consent:{adUserData:consent?.adUserData==='granted'?'CONSENT_GRANTED':'CONSENT_DENIED',adPersonalization:consent?.adPersonalization==='granted'?'CONSENT_GRANTED':'CONSENT_DENIED'},
+          adIdentifiers,
+          userData: userIdentifiers.length ? { userIdentifiers } : undefined,
+        },
+      ],
+      encoding: "HEX",
+      validateOnly: this.config.google.validateOnly,
+    };
+  }
+
+  async send(payload: Record<string, unknown>): Promise<AdapterResult> {
+    const { accessToken, adsAccountId, conversionActionId } = this.config.google;
+    if (!accessToken || !adsAccountId || !conversionActionId) {
+      throw new AdapterError("Google Data Manager live credentials are incomplete", "GOOGLE_CONFIG", false);
+    }
+    let response:Response;
+    try { response = await fetch("https://datamanager.googleapis.com/v1/events:ingest", {
+      method: "POST",
+      headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
+      body: JSON.stringify(payload),
+      signal:AbortSignal.timeout(20000),redirect:'error',
+    }); } catch { throw new AdapterError('Upload outcome is unknown; reconcile before retry','GOOGLE_OUTCOME_UNKNOWN',false,true); }
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new AdapterError(body?.error?.message || "Google request failed", String(body?.error?.status || response.status), response.status === 429 || response.status >= 500);
+    }
+    if(payload.validateOnly===true)return {diagnosticStatus:'unknown',validatedOnly:true,receiptStages:{validation:'passed',acceptance:'not_attempted',processing:'unknown',matching:'unknown'}};
+    if(typeof body.requestId!=='string'||!body.requestId)throw new AdapterError('Accepted response has no request identifier; reconcile before retry','GOOGLE_REQUEST_ID_MISSING',false,true);
+    return { responseId: body.requestId, diagnosticStatus: "unknown",receiptStages:{validation:'passed',acceptance:'accepted',processing:'unknown',matching:'unknown'} };
+  }
+
+  async queryDiagnostics(responseId: string): Promise<AdapterResult["diagnosticStatus"]> {
+    const result=await this.queryReceipt(responseId);return result.processing==='failed'||result.processing==='partial_success'?'warning':'unknown';
+  }
+
+  async queryReceipt(responseId:string):Promise<ConversionReceiptStages>{
+    const unknown:ConversionReceiptStages={validation:'passed',acceptance:'accepted',processing:'unknown',matching:'unknown'};
+    if (!this.config.google.accessToken) return unknown;
+    const url = new URL("https://datamanager.googleapis.com/v1/requestStatus:retrieve");
+    url.searchParams.set("requestId", responseId);
+    const response = await fetch(url, { headers: { authorization: `Bearer ${this.config.google.accessToken}` },signal:AbortSignal.timeout(15000),redirect:'error' });
+    if (!response.ok) return unknown;
+    const body: any = await response.json();
+    return parseGoogleReceipt(body,this.config.google.adsAccountId||'',this.config.google.conversionActionId||'');
+  }
+
+  async refreshCredentials() {
+    throw new AdapterError("Google OAuth refresh is delegated to the secret broker", "GOOGLE_REFRESH_EXTERNAL", false);
+  }
+}
+
+export function parseGoogleReceipt(body:any,accountId:string,destinationId:string):ConversionReceiptStages {
+  const all=Array.isArray(body.requestStatusPerDestination)?body.requestStatusPerDestination:[];
+  const rows=all.filter((r:any)=>r.destination?.operatingAccount?.accountId===accountId&&r.destination?.productDestinationId===destinationId);
+  const statuses:Record<string,ConversionReceiptStages['processing']>={SUCCESS:'success',PROCESSING:'processing',FAILED:'failed',PARTIAL_SUCCESS:'partial_success'};
+  return {validation:'passed',acceptance:'accepted',processing:rows.length===1?(statuses[rows[0].requestStatus]||'unknown'):'unknown',matching:'unknown',destinations:rows.map((r:any)=>({destinationId:r.destination.productDestinationId,status:r.requestStatus,recordCount:r.eventsIngestionStatus?.recordCount??null,hasErrors:!!r.errorInfo,hasWarnings:!!r.warningInfo})),checkedAt:new Date().toISOString()};
+}
+
+export function adapterFor(provider: string, mode?: "mock" | "live"): AdsConversionAdapter {
+  const config = loadConfig();
+  if (mode === "mock" || config.adsMode === "mock") return new MockAdsAdapter(provider);
+  if (provider === "meta") return new MetaAdsAdapter(config);
+  if (provider === "google") return new GoogleAdsAdapter(config);
+  throw new AdapterError(`No adapter for ${provider}`, "UNSUPPORTED_PROVIDER", false);
+}

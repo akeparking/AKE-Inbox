@@ -1,0 +1,56 @@
+# Layer onto the existing demo and sales Compose files. No live data volumes are removed.
+x-inbox-archive: &inbox-archive
+  environment:
+    AKE_ARCHIVE_ACCOUNT_ID: '1'
+    AKE_ARCHIVE_ROOT: /var/lib/ake-archive
+  volumes:
+    - ./deploy/archive/ake_archive.rb:/app/config/initializers/ake_archive.rb:ro
+    - ./deploy/archive/ake_archive_capture_job.rb:/app/app/jobs/ake_archive_capture_job.rb:ro
+    - ./deploy/archive:/opt/ake-archive:ro
+    - ./runtime/inbox-archive:/var/lib/ake-archive
+    - ./deploy/ake-mark.svg:/app/public/ake-mark.svg:ro
+services:
+  chatwoot-web:
+    <<: *inbox-archive
+  chatwoot-worker:
+    <<: *inbox-archive
+  whatsapp-web:
+    image: evoapicloud/evolution-api:v2.3.7@sha256:1bd8afc4a6cf48822e6cf02469aeae7bd35a12a6b616eacd1291926307f4d339
+    restart: unless-stopped
+    env_file: ./private/whatsapp.env
+    ports: ['127.0.0.1:14808:8080']
+    volumes: [whatsapp-sessions:/evolution/instances]
+    networks: [backend, outbound]
+    mem_limit: 384m
+    memswap_limit: 640m
+    pids_limit: 96
+    security_opt: [no-new-privileges:true]
+    logging: {driver: json-file, options: {max-size: 5m, max-file: '2'}}
+    healthcheck:
+      test: [CMD, node, -e, 'fetch("http://127.0.0.1:8080/").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+  whatsapp-archive:
+    image: node:24-alpine
+    restart: unless-stopped
+    command: [node, /app/server.mjs]
+    volumes:
+      - ./deploy/whatsapp:/app:ro
+      - ./releases/current/core:/deps:ro
+      - ./private/whatsapp-archive.json:/private/whatsapp-archive.json:ro
+      - ./runtime/whatsapp-archive:/data
+    networks: [backend, frontend]
+    mem_limit: 80m
+    pids_limit: 48
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    logging: {driver: json-file, options: {max-size: 2m, max-file: '2'}}
+    healthcheck:
+      test: [CMD, node, -e, 'fetch("http://127.0.0.1:4312/health").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+volumes:
+  whatsapp-sessions:
