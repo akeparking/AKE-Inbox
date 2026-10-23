@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@ake/contracts": "0.2.0",
-    "@fontsource/noto-sans-sc": "5.3.0",
+    "@fontsource/noto-sans-sc": "5.3.1",
     "@phosphor-icons/react": "2.1.10",
     "next": "16.4.2",
     "react": "19.2.8",
