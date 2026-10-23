@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Added manual Meta Ads feedback to Inbox: reviewed stage preparation, direct CAPI delivery, durable receipts and duplicate-click protection, with independent Mock/Test/Live modes.
+- Kept website attribution separate from native Instant Form CRM events, added consented Meta click capture and a shared optional Pixel/server Lead event ID.
+- Added local blue-site acceptance tooling; existing Google feedback remains independently configured. No production Meta acceptance or old gateway shutdown is asserted.
+
 ## [0.2.2] - 2026-10-27 (prerelease)
 
 - Preserve retryable native delivery failures when Core admission is unavailable before provider dispatch. Explicit policy blocks are visible as failed messages; final email admission failures cannot be recorded as successful sends.

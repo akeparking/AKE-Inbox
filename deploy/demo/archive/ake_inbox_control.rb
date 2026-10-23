@@ -27,7 +27,8 @@ module AkeInboxControl
     uri=URI(ENV.fetch('AKE_INBOX_CORE_URL')+'/api/v1/inbox-v2/'+path)
     request=Net::HTTP::Post.new(uri); request['Content-Type']='application/json';request['x-inbox-key']=ENV.fetch('AKE_INBOX_INTERNAL_KEY')
     request.body=JSON.generate(payload)
-    result=Net::HTTP.start(uri.hostname,uri.port,open_timeout:2,read_timeout:8){|http|http.request(request)}
+    timeout = path == 'marketing/native' && payload[:action] == 'meta_send' ? 30 : 8
+    result=Net::HTTP.start(uri.hostname,uri.port,open_timeout:2,read_timeout:timeout){|http|http.request(request)}
     raise Unavailable.new('Inbox control unavailable', result.code.to_i) unless result.is_a?(Net::HTTPSuccess)
     JSON.parse(result.body)
   end
