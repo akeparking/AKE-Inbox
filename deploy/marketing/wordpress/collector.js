@@ -79,7 +79,12 @@
   async function submit(formId,version,fields,sourceSubmissionId=id()){
     const s=await ensureSession();if(!s)throw new Error('Please try again.');
     event('form_submit_attempt',{formId});void flush();
-    try{const receipt=await request('/public/submissions',{siteId,sessionToken:s.sessionToken,sourceSubmissionId,formId,version,fields});notify('inquiry',receipt);return receipt;}
+    try{const receipt=await request('/public/submissions',{siteId,sessionToken:s.sessionToken,sourceSubmissionId,formId,version,fields});
+      // Optional existing Pixel integration: same ID as the server Lead. No SDK is loaded here.
+      if(cfg.metaPixelId&&typeof window.fbq==='function'&&consent.adStorage==='granted'&&consent.adUserData==='granted'&&receipt.metaEventId){
+        try{window.fbq('trackSingle',cfg.metaPixelId,'Lead',{}, {eventID:receipt.metaEventId});}catch{/* A tracking failure must not undo a persisted inquiry. */}
+      }
+      notify('inquiry',receipt);return receipt;}
     catch(e){event('form_submit_failed',{formId});void flush();throw e;}
   }
   async function renderForm(container){

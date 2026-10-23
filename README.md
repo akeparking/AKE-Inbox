@@ -23,6 +23,8 @@ Self-hosted B2B inquiry operations: connect conversations, reviewed customer req
 
 ## 当前源码包含的功能
 
+新增本地增量：[Meta Ads 回传](docs/META_ADS_FEEDBACK.md)。支持管理员准备阶段事件、一键直连 CAPI、持久回执和防重复发送；默认 Mock，启用正式发送与停止旧 OKKI 网关仍需完成各自的实际验收。
+
 | 模块 | 功能与作用 | 当前边界 |
 |---|---|---|
 | 统一接待 | Chatwoot 网站/邮箱接入、坐席路由、会话状态、人工接管 | 需要独立配置渠道；支持范围取决于所用 Chatwoot 版本 |

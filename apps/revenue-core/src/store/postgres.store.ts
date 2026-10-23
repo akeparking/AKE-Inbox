@@ -1,3 +1,4 @@
+import { marketingAttribution } from '../marketing/contracts';
 import { randomUUID } from "node:crypto";
 import { ConflictException, NotFoundException, BadRequestException } from "@nestjs/common";
 import { loadConfig } from "../config";
@@ -305,10 +306,10 @@ export class PostgresRevenueStore implements RevenueStore {
       const now=new Date().toISOString(),context=await this.getLeadInternal(input.workspaceId,lead.id),mode=loadConfig().adsMode;
       const marketing=(await client.query('SELECT i.id,i.visit_id,i.identity_state,v.current_touch,c.choices,visitor.revoked_at FROM marketing_inquiries i LEFT JOIN marketing_visits v ON v.id=i.visit_id LEFT JOIN marketing_visitors visitor ON visitor.id=i.visitor_id LEFT JOIN marketing_consents c ON c.id=visitor.consent_id WHERE i.lead_id=$1',[lead.id])).rows[0];
       if(marketing&&context){const t=marketing.current_touch,ids=t?.identifiersCipher?JSON.parse(this.cipher.decrypt(t.identifiersCipher)):{};
-        context.rawAttribution={...context.rawAttribution,provider:Object.keys(ids).length?'google':'organic',identifiers:Object.entries(ids).map(([k,v])=>({type:('google_'+k) as any,value:String(v)})),utm:t?.utm||{},landingUrl:t?.pageUrl,referrer:t?.referrer,consentStatus:!marketing.revoked_at&&marketing.choices?.adStorage==='granted'&&marketing.choices?.adUserData==='granted'?'granted':'unknown',metadata:{...context.rawAttribution.metadata,consent:marketing.choices||{}}};
+        context.rawAttribution={...context.rawAttribution,...marketingAttribution(ids),utm:t?.utm||{},landingUrl:t?.pageUrl,referrer:t?.referrer,consentStatus:!marketing.revoked_at&&marketing.choices?.adStorage==='granted'&&marketing.choices?.adUserData==='granted'?'granted':'unknown',metadata:{...context.rawAttribution.metadata,consent:marketing.choices||{}}};
       }
       const provider=context?.rawAttribution.provider||lead.provider;
-      const reason=marketing&&(!marketing.visit_id||marketing.identity_state==='conflict')?'attribution_unconfirmed':mode!=='live'?null:lead.is_test?'test_record':!context||!isAdsProvider(provider)||!hasFeedbackAttribution(context)?'no_attribution':context.rawAttribution.consentStatus!=='granted'?'consent_required':null;
+      const reason=process.env.META_FEEDBACK_ENABLED==='true'&&provider==='meta'?'manual_meta_feedback':marketing&&(!marketing.visit_id||marketing.identity_state==='conflict')?'attribution_unconfirmed':mode!=='live'?null:lead.is_test?'test_record':!context||!isAdsProvider(provider)||!hasFeedbackAttribution(context)?'no_attribution':context.rawAttribution.consentStatus!=='granted'?'consent_required':null;
       const eventKey=`qualified:${input.workspaceId}:${lead.id}:v1`,eventId=`event_${randomUUID()}`,deliveryId=`delivery_${randomUUID()}`;
       if(opportunity)await client.query('UPDATE opportunities SET qualified_at=$2,next_action=$3,version=version+1 WHERE id=$1',[opportunity.id,now,input.nextAction]);
       await client.query("UPDATE leads SET status='qualified' WHERE id=$1",[lead.id]);

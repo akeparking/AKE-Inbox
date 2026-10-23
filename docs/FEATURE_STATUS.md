@@ -11,6 +11,7 @@ Status labels describe this source release, not a production installation. The t
 | Complete bidirectional CRM synchronization | Existing read/write pieces and receipts | Partial; owner/stage/won/lost reconciliation and general conflict resolution remain roadmap |
 | Knowledge-supported AI | `apps/requirement-engine`, Inbox automation | Adapter implemented; approved private knowledge and provider setup not distributed |
 | Meta/Google delivery | Conversion adapters, marketing ledger | Source retained; public default is Mock; no real-platform result asserted by this release |
+| Meta Ads one-click feedback (local increment) | `marketing/meta-feedback.ts`, migration 007, native marketing UI | Reviewed Lead / QualifiedLead / ConvertedLead, direct CAPI, durable attempts; defaults to Mock. Real Test Events and legacy gateway cutover remain separate; see [guide](META_ADS_FEEDBACK.md) |
 | Single-event Google acceptance | `supplemental/google-offline` | Optional private configuration; mocked guard tests only in CI; no timer or OAuth session installed |
 | Full company-centric CRM, multi-tenant SaaS, ERP | Limited Lead/opportunity model | Not complete; see roadmap |
 

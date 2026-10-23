@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Added manual Meta Ads feedback to Inbox: reviewed stage preparation, direct CAPI delivery, durable receipts and duplicate-click protection, with independent Mock/Test/Live modes.
+- Kept website attribution separate from native Instant Form CRM events, added consented Meta click capture and a shared optional Pixel/server Lead event ID.
+- Added local blue-site acceptance tooling; existing Google feedback remains independently configured. No production Meta acceptance or old gateway shutdown is asserted.
+
 ## [0.2.0] - 2026-10-23
 
 First public AKE-Inbox source release, based on the full supplied Inbox snapshot.

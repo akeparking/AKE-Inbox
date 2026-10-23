@@ -10,6 +10,8 @@ import { InboxAutomation } from '../inbox-v2/automation.service';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { BridgeControl } from './bridge';
+import { MetaFeedback } from './meta-feedback';
+import { marketingAttribution } from './contracts';
 import { consentSchema, sessionSchema, eventSchema, formSchema, submissionSchema, safeUrl, safeTelemetryText, touch, hash, readToken, signToken, shortCode, codeFromMessage, validateFields, type SessionClaims } from './contracts';
 
 @Injectable()
@@ -87,12 +89,12 @@ export class MarketingService {
     try{fields=validateFields(formSchema.parse(f.definition),b.fields);}catch{throw new BadRequestException('Check required form fields');}
     return this.repo.transaction('marketing-submit:'+site.id+':'+b.sourceSubmissionId,async db=>{
       const digest=hash({formId:b.formId,version:b.version,fields}),old=(await db.query('SELECT id,request_hash FROM marketing_inquiries WHERE site_id=$1 AND source_submission_id=$2',[site.id,b.sourceSubmissionId])).rows[0];
-      if(old){if(old.request_hash!==digest)throw new ConflictException('Submission id reused');return {inquiryId:old.id,confirmed:true,duplicate:true};}
+      if(old){if(old.request_hash!==digest)throw new ConflictException('Submission id reused');return {inquiryId:old.id,metaEventId:'inbox:website:lead:'+old.id,confirmed:true,duplicate:true};}
       const id=randomUUID();await db.query(`INSERT INTO marketing_inquiries(id,site_id,account_id,source_submission_id,source_kind,request_hash,payload,visitor_id,visit_id,consent_id,form_id,form_version)
         VALUES($1,$2,$3,$4,'form',$5,$6,$7,$8,$9,$10,$11)`,[id,site.id,site.account_id,b.sourceSubmissionId,digest,this.repo.pack({fields,definition:f.definition}),c.visitorId,c.visitId,c.consentId,b.formId,b.version]);
       if(c.visitorId)await db.query('INSERT INTO marketing_links(id,inquiry_id,visitor_id,basis,evidence,actor_id,reason) VALUES($1,$2,$3,$4,$5,$6,$7)',[randomUUID(),id,c.visitorId,'persisted_form_receipt',{submissionId:b.sourceSubmissionId,visitId:c.visitId},'system','Server persisted the submitted form']);
       await this.repo.job('marketing_intake','marketing-intake:'+id,null,null,null,{inquiryId:id},new Date(),db);
-      return {inquiryId:id,confirmed:true,duplicate:false};
+      return {inquiryId:id,metaEventId:'inbox:website:lead:'+id,confirmed:true,duplicate:false};
     });
   }
   async issueCode(input:unknown,origin:string){
@@ -289,6 +291,16 @@ export class MarketingService {
   }
   async action(actor:Actor,action:string,input:any){
     this.ready();if(process.env.ATTRIBUTION_UI_ENABLED!=='true')throw new ServiceUnavailableException('Marketing UI disabled');
+    if(action==='meta_feedback') { this.admin(actor); const meta=new MetaFeedback(this.repo);return {settings:meta.publicSettings(),receipts:await meta.rows(actor.accountId)}; }
+    if(action==='meta_prepare'||action==='meta_send') {
+      this.admin(actor);const row=await this.inquiry(actor,action==='meta_prepare'?input.id:input.inquiryId);
+      try { const meta=new MetaFeedback(this.repo);return action==='meta_prepare'?await meta.prepare(actor,row,input):await meta.send(actor,row,input.feedbackId); }
+      catch(e) {
+        if(e instanceof z.ZodError)return {metaError:'请核对来源、阶段、日期和核验依据是否填写完整'};
+        if(e instanceof BadRequestException||e instanceof ConflictException||e instanceof ServiceUnavailableException)return {metaError:e.message};
+        throw e;
+      }
+    }
     if(action==='overview'){this.admin(actor);return this.overview();}
     if(action==='bridge_transition'){this.admin(actor);if(config().channels[String(input.inboxId)]!=='whatsapp')throw new ForbiddenException();return new BridgeControl(this.repo).transition(actor,input);}
     if(action==='bridge_status'){this.admin(actor);return {bridges:(await this.repo.db.query('SELECT inbox_id,provider,revision,cutoff_message_id,updated_at FROM marketing_bridge_owners WHERE account_id=$1',[actor.accountId])).rows};}
@@ -321,7 +333,8 @@ export class MarketingService {
       const row=await this.inquiry(actor,input.id),links=(await this.repo.db.query('SELECT * FROM marketing_links WHERE inquiry_id=$1 ORDER BY created_at,id',[row.id])).rows;
       const timeline=row.visitor_id?await this.timeline(row.visitor_id):null;const {payload,request_hash,...safe}=row;
       const crm=row.contact_id?(await this.repo.db.query('SELECT l.lead_id,l.company_id,c.identity_verified,c.identity_conflict FROM inbox_v2_contacts c LEFT JOIN inbox_v2_links l USING(account_id,group_key) WHERE c.account_id=$1 AND c.contact_id=$2',[actor.accountId,row.contact_id])).rows[0]:null;
-      return {inquiry:safe,submission:this.repo.unpack(payload),links,timeline,crm:crm||null,coverage:row.visitor_id?'observed':'history_unknown',receipts:row.lead_id?await this.receipts(row.lead_id):[],role:actor.role};
+      const meta=new MetaFeedback(this.repo);
+      return {inquiry:safe,submission:this.repo.unpack(payload),links,timeline,crm:crm||null,coverage:row.visitor_id?'observed':'history_unknown',receipts:row.lead_id?await this.receipts(row.lead_id):[],role:actor.role,meta:actor.role==='administrator'?{settings:meta.publicSettings(),receipts:await meta.rows(actor.accountId,row.id)}:undefined};
     }
     if(action==='forms'){this.admin(actor);return {forms:(await this.repo.db.query('SELECT f.* FROM marketing_forms f JOIN marketing_sites s ON s.id=f.site_id WHERE s.account_id=$1 ORDER BY f.created_at DESC',[actor.accountId])).rows};}
     if(action==='identity_preview'){
@@ -419,8 +432,8 @@ export class MarketingService {
           const visit=row.visit_id?(await this.repo.db.query('SELECT current_touch FROM marketing_visits WHERE id=$1',[row.visit_id])).rows[0]?.current_touch:null;
           const consent=row.consent_id?(await this.repo.db.query('SELECT choices FROM marketing_consents WHERE id=$1',[row.consent_id])).rows[0]?.choices:null;
           const sourceKind: 'website'|'whatsapp'|'email'=row.source_kind==='whatsapp'?'whatsapp':row.source_kind==='email'?'email':'website';
-          const ids=visit?.identifiersCipher?this.repo.unpack(visit.identifiersCipher):{},provider=Object.keys(ids).length?'google':'organic';
-          const lead=await this.revenue.ingestLead({workspaceId:loadConfig().defaultWorkspaceId,provider,sourceKind,externalLeadId:'marketing:'+row.site_id+':'+row.id,displayName:String(mapped.name||'Website inquiry'),isTest:process.env.MARKETING_TEST_MODE==='true',attribution:{provider,sourceKind,occurredAt:new Date(row.created_at).toISOString(),identifiers:Object.entries(ids).map(([k,v])=>({type:('google_'+k) as any,value:String(v)})),utm:visit?.utm||{},landingUrl:visit?.pageUrl,referrer:visit?.referrer,consentStatus:consent?.adStorage==='granted'&&consent?.adUserData==='granted'?'granted':'unknown',metadata:{consent:consent||{},inquiryId:row.id,identityVerification:'unverified'}}});
+          const ids=visit?.identifiersCipher?this.repo.unpack(visit.identifiersCipher):{},{provider,identifiers}=marketingAttribution(ids);
+          const lead=await this.revenue.ingestLead({workspaceId:loadConfig().defaultWorkspaceId,provider,sourceKind,externalLeadId:'marketing:'+row.site_id+':'+row.id,displayName:String(mapped.name||'Website inquiry'),isTest:process.env.MARKETING_TEST_MODE==='true',attribution:{provider,sourceKind,occurredAt:new Date(row.created_at).toISOString(),identifiers,utm:visit?.utm||{},landingUrl:visit?.pageUrl,referrer:visit?.referrer,consentStatus:consent?.adStorage==='granted'&&consent?.adUserData==='granted'?'granted':'unknown',metadata:{consent:consent||{},inquiryId:row.id,identityVerification:'unverified'}}});
           leadId=lead.id;
         }
         await this.repo.transaction('marketing-intake:'+row.id,async db=>{await db.query('UPDATE marketing_inquiries SET contact_id=$2,conversation_id=$3,message_id=$4,lead_id=$5,state=CASE WHEN qualified_at IS NULL THEN \'received\' ELSE state END WHERE id=$1',[row.id,receipt.contactId,receipt.conversationId,receipt.messageId,leadId]);await this.repo.finish(job.id,'done',{inquiryId:row.id,...receipt},null,db);});

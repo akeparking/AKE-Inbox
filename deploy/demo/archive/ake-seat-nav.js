@@ -31,7 +31,7 @@
       }
       const spacer=document.createElement('span');spacer.className='ake-spacer';nav.append(spacer);
       nav.append(link('客户管理',`/ake/customers?account=${account}`),link('我的渠道',`/ake/channels?account=${account}`));
-      if(seats.marketing_enabled)nav.append(link('营销',`/ake/marketing?account=${account}`));
+      if(seats.marketing_enabled){nav.append(link('营销',`/ake/marketing?account=${account}`));if(seats.role==='administrator')nav.append(link('Meta Ads 回传',`/ake/marketing?account=${account}&view=meta_feedback`));}
       document.body.append(nav);document.body.classList.add('ake-workspace');active();
     }catch{loaded=false;}
   }
