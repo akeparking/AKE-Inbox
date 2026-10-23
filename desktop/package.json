@@ -1,0 +1,17 @@
+{
+  "name": "ake-inbox-desktop",
+  "productName": "AKE Inbox",
+  "version": "0.2.0-rc.1",
+  "description": "Windows reception client for a locally hosted AKE Inbox",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.cjs test/*.test.mjs",
+    "package:win": "electron-packager . AKE-Inbox --platform=win32 --arch=x64 --out=out --overwrite --asar --prune --ignore=^/test --ignore=^/out --ignore=^/evidence --ignore=^/node_modules --ignore=^/package-lock.json --executable-name=AKE-Inbox --win32metadata.CompanyName=AKE --win32metadata.FileDescription='AKE Inbox Workbench'"
+  },
+  "devDependencies": {
+    "electron": "45.0.0",
+    "@electron/packager": "20.3.0"
+  }
+}

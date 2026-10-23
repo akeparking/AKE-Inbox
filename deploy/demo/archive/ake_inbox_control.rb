@@ -11,9 +11,16 @@ module AkeInboxControl
     end
   end
   def self.enabled?(conversation)
-    ENV['AKE_INBOX_V2_ENABLED'] == 'true' && conversation.account_id == ENV.fetch('AKE_INBOX_ACCOUNT_ID','1').to_i &&
-      ENV.fetch('AKE_INBOX_IDS','').split(',').map(&:to_i).include?(conversation.inbox_id) &&
-      !ENV.fetch('AKE_INBOX_EXCLUDED','').split(',').map(&:to_i).include?(conversation.display_id)
+    return false unless ENV['AKE_INBOX_V2_ENABLED'] == 'true' && conversation.account_id == ENV.fetch('AKE_INBOX_ACCOUNT_ID','1').to_i
+    return false if ENV.fetch('AKE_INBOX_EXCLUDED','').split(',').map(&:to_i).include?(conversation.display_id)
+    return true if ENV.fetch('AKE_INBOX_IDS','').split(',').map(&:to_i).include?(conversation.inbox_id)
+    return false unless ENV['AKE_OFFICE_RECEPTION_ENABLED'] == 'true'
+    # A seat may bind a new mailbox after cutover. Trust native ownership and
+    # membership, never an inbox id supplied by a webhook or browser.
+    inbox = conversation.inbox
+    owner = (inbox.auto_assignment_config || {})['ake_owner_id'].to_i
+    return false unless owner.positive? && inbox.account_id == conversation.account_id && inbox.member_ids.include?(owner)
+    inbox.channel_type == 'Channel::Email' || (inbox.channel_type == 'Channel::Api' && inbox.channel.additional_attributes['ake_instance'].to_s.match?(/\Aake-seat-\d+\z/))
   end
   def self.call(path, payload)
     uri=URI(ENV.fetch('AKE_INBOX_CORE_URL')+'/api/v1/inbox-v2/'+path)
@@ -112,6 +119,7 @@ Rails.application.config.to_prepare do
   end
   NotificationBuilder.prepend(AkeInboxControl::NotificationCreation) unless NotificationBuilder < AkeInboxControl::NotificationCreation
   ConversationReplyMailer.prepend(AkeInboxControl::MailTag) unless ConversationReplyMailer < AkeInboxControl::MailTag
+  require '/opt/ake-archive/ake_reception' if ENV['AKE_OFFICE_RECEPTION_ENABLED'] == 'true'
 end
 # Leave Action Mailer unloaded until Chatwoot's mailer initializer sets SMTP.
 # Eagerly loading it here freezes Rails' localhost:25 defaults for system mail.

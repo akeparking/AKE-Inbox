@@ -23,6 +23,11 @@ export class Chatwoot {
   account(path: string, body?: any, method?: string, credentials?: Record<string,string>) {
     return this.request(`/api/v1/accounts/${config().accountId}${path}`,body,method,credentials);
   }
+  async reception(cid: number,readOnly=false): Promise<{mode:'human'|'ai';assigneeId:number|null;onlineCount:number}> {
+    const result=await this.request('/ake/internal/reception/'+(readOnly?'status':'route'),{conversationId:cid},'POST',{'x-inbox-key':config().internalKey});
+    if(!['human','ai'].includes(result.mode)||!Number.isInteger(result.onlineCount)||result.onlineCount<0)throw new Error('invalid_reception_route');
+    return result;
+  }
   async login(email: string, password: string) {
     if (email.length>254 || password.length>1024) throw new UnauthorizedException();
     const r = await fetch(config().chatwootUrl+'/auth/sign_in', {method:'POST',signal:AbortSignal.timeout(15000),redirect:'error', headers:{'content-type':'application/json'},body:JSON.stringify({email,password})});

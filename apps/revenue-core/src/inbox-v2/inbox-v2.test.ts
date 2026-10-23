@@ -91,7 +91,7 @@ describe.skipIf(!dbEnabled)('Persistent Inbox controls (isolated PostgreSQL)',()
    vi.stubGlobal('fetch',vi.fn(()=>{entered();return new Promise(r=>finish=r);}));
    const generation=service.analyze(job);await ready;
    await service.control(101,{action:'takeover',expectedRevision:c.revision,idempotencyKey:'during-model'},actor);
-   finish(new Response(JSON.stringify({mode:'codex',reply:'Where is the project?',fields:emptyProfile().fields,evidence:[],knowledgeIds:[],askedFields:['projectLocation'],summary:'Project location missing',needsHuman:false}),{status:200,headers:{'content-type':'application/json'}}));
+   finish(new Response(JSON.stringify({mode:'api',reply:'Where is the project?',fields:emptyProfile().fields,evidence:[],knowledgeIds:[],askedFields:['projectLocation'],summary:'Project location missing',needsHuman:false}),{status:200,headers:{'content-type':'application/json'}}));
    await generation;expect((await store.db.query("SELECT count(*)::int n FROM inbox_v2_jobs WHERE kind='send'")).rows[0].n).toBe(0);vi.unstubAllGlobals();
  });
  it('holds native delivery failures and cancels followups for the undelivered question',async()=>{

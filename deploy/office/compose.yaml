@@ -1,0 +1,128 @@
+# Office hub. Staging is isolated; live.yaml grants channel services Internet access.
+name: ake-inbox-office
+x-native: &native
+  image: chatwoot/chatwoot@sha256:b419dded7e9d2f54a24fd427b74ba7e6069d601b500618045c1eb6c01a1cc9a1
+  env_file: ${OFFICE_RUNTIME}/private/chatwoot.env
+  volumes:
+    - ${OFFICE_RUNTIME}/storage:/app/storage
+    - ${OFFICE_RUNTIME}/archive:/var/lib/ake-archive
+    - ${OFFICE_BUNDLE}/deploy/archive:/opt/ake-archive:ro
+    - ${OFFICE_BUNDLE}/deploy/archive/ake_inbox_control.rb:/app/config/initializers/ake_inbox_control.rb:ro
+    - ${OFFICE_BUNDLE}/deploy/archive/ake_archive.rb:/app/config/initializers/ake_archive.rb:ro
+    - ${OFFICE_BUNDLE}/deploy/archive/ake_archive_capture_job.rb:/app/app/jobs/ake_archive_capture_job.rb:ro
+    - ./staging_guard.rb:/app/config/initializers/ake_office_staging_guard.rb:ro
+    - ${OFFICE_BUNDLE}/deploy/archive/ake_brand.rb:/app/config/initializers/ake_brand.rb:ro
+    - ${OFFICE_BUNDLE}/deploy/ake-logo.png:/app/public/ake-logo.png:ro
+    - ${OFFICE_BUNDLE}/deploy/ake-mark.svg:/app/public/ake-mark.svg:ro
+  networks: [office]
+  environment:
+    AKE_OFFICE_STAGING_READ_ONLY: '${OFFICE_READ_ONLY:-true}'
+    AKE_INBOX_BRAND: '${OFFICE_BRAND:-AKE Inbox · 本机预备环境}'
+    AKE_LOGO_URL: /ake-logo.png
+  restart: unless-stopped
+  mem_limit: 768m
+  logging: {driver: json-file, options: {max-size: 5m, max-file: '2'}}
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    env_file: ${OFFICE_RUNTIME}/private/postgres.env
+    volumes: [office-pg:/var/lib/postgresql/data]
+    networks: [office]
+    restart: unless-stopped
+    mem_limit: 384m
+    healthcheck:
+      test: [CMD, pg_isready, -U, postgres]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  redis:
+    image: redis:7.4-alpine
+    networks: [office]
+    restart: unless-stopped
+    mem_limit: 128m
+    command: [redis-server, --appendonly, 'yes']
+    volumes: [office-redis:/data]
+  web:
+    <<: *native
+    entrypoint: [/bin/sh, -c]
+    command: ['rm -f /app/tmp/pids/server.pid && exec bundle exec rails server -b 0.0.0.0 -p 3000']
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_started}
+  native-worker:
+    <<: *native
+    entrypoint: [bundle]
+    command: [exec, sidekiq, '-C', config/sidekiq.yml]
+    profiles: [delivery]
+  core:
+    image: ${OFFICE_NODE_IMAGE:-node:24-alpine}
+    entrypoint: [node]
+    user: node
+    working_dir: /app
+    command: [apps/revenue-core/dist/main.js]
+    env_file: ${OFFICE_RUNTIME}/private/core.env
+    volumes:
+      - ${OFFICE_BUNDLE}/core:/app:ro
+      - ${OFFICE_RUNTIME}/archive:/var/lib/ake-archive:ro
+      - ${OFFICE_RUNTIME}/exports:/var/lib/ake-exports
+    networks: [office]
+    restart: unless-stopped
+    mem_limit: 256m
+    depends_on:
+      postgres: {condition: service_healthy}
+  workspace:
+    image: ${OFFICE_NODE_IMAGE:-node:24-alpine}
+    entrypoint: [node]
+    user: node
+    working_dir: /app
+    command: [apps/workspace-web/server.js]
+    env_file: ${OFFICE_RUNTIME}/private/workspace.env
+    volumes: ['${OFFICE_BUNDLE}/web:/app:ro']
+    networks: [office]
+    restart: unless-stopped
+    mem_limit: 256m
+  whatsapp-web:
+    image: ${OFFICE_EVOLUTION_IMAGE:-evoapicloud/evolution-api:v2.3.7@sha256:1bd8afc4a6cf48822e6cf02469aeae7bd35a12a6b616eacd1291926307f4d339}
+    profiles: [channels]
+    env_file: ${OFFICE_RUNTIME}/private/whatsapp.env
+    volumes: [office-wa:/evolution/instances]
+    networks: [office]
+    restart: unless-stopped
+    mem_limit: 384m
+    pids_limit: 96
+    security_opt: [no-new-privileges:true]
+    logging: {driver: json-file, options: {max-size: 5m, max-file: '2'}}
+  whatsapp-archive:
+    image: ${OFFICE_NODE_IMAGE:-node:24-alpine}
+    profiles: [channels]
+    entrypoint: [node]
+    command: [/app/server.mjs]
+    volumes:
+      - ${OFFICE_BUNDLE}/deploy/whatsapp:/app:ro
+      - ${OFFICE_BUNDLE}/core:/deps:ro
+      - ${OFFICE_RUNTIME}/private/whatsapp-archive.json:/private/whatsapp-archive.json:ro
+      - ${OFFICE_RUNTIME}/whatsapp-archive:/data
+    networks: [office]
+    restart: unless-stopped
+    mem_limit: 80m
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    logging: {driver: json-file, options: {max-size: 2m, max-file: '2'}}
+  gateway:
+    image: ${OFFICE_NODE_IMAGE:-node:24-alpine}
+    entrypoint: [node]
+    command: [/gateway.mjs]
+    volumes: ['./gateway.mjs:/gateway.mjs:ro']
+    environment:
+      OFFICE_READ_ONLY: '${OFFICE_READ_ONLY:-true}'
+    ports: ['127.0.0.1:14720:14720', '127.0.0.1:14721:14721', '127.0.0.1:14722:14722']
+    networks: [office, local-ui]
+    restart: unless-stopped
+    mem_limit: 96m
+networks:
+  office: {internal: true}
+  local-ui: {}
+volumes:
+  office-pg:
+  office-redis:
+  office-wa:

@@ -168,3 +168,5 @@ Rails.application.config.to_prepare do
   Attachment.include(AkeArchive::AttachmentCallbacks) unless Attachment < AkeArchive::AttachmentCallbacks
   Imap::BaseFetchEmailService.prepend(AkeArchive::RawImap) unless Imap::BaseFetchEmailService < AkeArchive::RawImap
 end
+
+require '/opt/ake-archive/ake_archive_dedup'

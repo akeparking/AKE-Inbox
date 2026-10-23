@@ -1,0 +1,10 @@
+# Enable only after the final source snapshot and authentication reset.
+services:
+  web:
+    networks: [office, outbound]
+  native-worker:
+    networks: [office, outbound]
+  whatsapp-web:
+    networks: [office, outbound]
+networks:
+  outbound: {}

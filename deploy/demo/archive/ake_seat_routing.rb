@@ -165,6 +165,7 @@ module AkeSeatRouting
 
   module RoundRobin
     def available_agent(allowed_agent_ids: [])
+      return if ENV['AKE_OFFICE_RECEPTION_ENABLED'] == 'true' && AkeSeatRouting.enabled?(inbox.account_id)
       return super unless AkeSeatRouting.enabled?(inbox.account_id)
 
       allowed = allowed_agent_ids.map(&:to_s) & AkeSeatRouting.eligible_ids(inbox).map(&:to_s)
@@ -182,6 +183,7 @@ module AkeSeatRouting
 
   module PersonalAssignment
     def ake_assign_personal_owner
+      return if ENV['AKE_OFFICE_RECEPTION_ENABLED'] == 'true'
       return unless AkeSeatRouting.enabled?(account_id) && inbox
       id = AkeSeatRouting.owner(inbox)
       return unless id.positive?
@@ -272,6 +274,7 @@ end
 class AkeSeatBacklogJob < ApplicationJob
   queue_as :low
   def perform(account_id)
+    return if ENV['AKE_OFFICE_RECEPTION_ENABLED'] == 'true'
     return unless AkeSeatRouting.enabled?(account_id)
 
     account = Account.find(account_id)

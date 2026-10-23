@@ -12,8 +12,43 @@ import { stopReason, cleanIncoming, isAutomaticMail, humanRequest, optedOut, com
 
 @Injectable()
 export class InboxAutomation implements OnApplicationBootstrap, OnModuleDestroy {
-  private timer?:NodeJS.Timeout; private busy=new Set<string>(); private lastMaintenance=0;
+  private timer?:NodeJS.Timeout; private busy=new Set<string>(); private lastMaintenance=0; private lastReception=0;
   constructor(readonly store:InboxRepository, readonly cw:Chatwoot, readonly okki:OkkiWriter, readonly exports:InboxExports) {}
+  async routeReception(c:Conversation,db:any):Promise<Conversation> {
+    if(!config().officeReception||!(c as any).reception_managed||c.blocked||c.opted_out||c.mode==='paused'||c.native_status==='resolved')return c;
+    const route=await this.cw.reception(c.conversation_id);
+    const mode=route.mode==='human'?'human':(c as any).reception_hold||!config().modelReady?'human_pending':'ai';
+    await db.query('UPDATE inbox_v2_conversations SET reception_checked_at=now() WHERE account_id=$1 AND conversation_id=$2',[c.account_id,c.conversation_id]);
+    if(mode!==c.mode) {
+      await db.query('UPDATE inbox_v2_conversations SET mode=$3,revision=revision+1 WHERE account_id=$1 AND conversation_id=$2',[c.account_id,c.conversation_id,mode]);
+      await this.store.cancel(c.group_key,'reception_changed',db,c.conversation_id);
+      await this.store.audit('system','reception.routed',String(c.conversation_id),{mode,assigneeId:route.assigneeId,onlineCount:route.onlineCount},db);
+    }
+    return (await this.store.conversation(c.conversation_id,db))!;
+  }
+  async reconcileReception() {
+    if(!config().officeReception||Date.now()-this.lastReception<5000)return;
+    this.lastReception=Date.now();
+    const rows=(await this.store.db.query("SELECT conversation_id,group_key FROM inbox_v2_conversations v JOIN inbox_v2_contacts c USING(account_id,contact_id) WHERE v.account_id=$1 AND reception_managed AND mode<>'paused' AND native_status<>'resolved' AND NOT blocked AND NOT opted_out ORDER BY reception_checked_at ASC NULLS FIRST LIMIT 50",[config().accountId])).rows;
+    for(const row of rows)await this.store.transaction('group:'+row.group_key,async db=>{
+      let c=await this.store.conversation(row.conversation_id,db);if(!c)return;
+      c=await this.routeReception(c,db);
+      if(stopReason(c))return;
+      const last=(await this.cw.messages(c.conversation_id)).filter(m=>!m.private&&[0,1,'incoming','outgoing'].includes(m.message_type)).at(-1);
+      if(!last||![0,'incoming'].includes(last.message_type))return;
+      const text=await this.receptionInput(c,last,db);
+      if(text)await this.store.job('ai',`reception:${c.conversation_id}:${last.id}:${c.revision}`,c.conversation_id,c.group_key,c.revision,{messageId:last.id,text},new Date(),db);
+    });
+  }
+  async receptionInput(c:Conversation,message:any,db:any):Promise<string|null> {
+    const epoch=typeof message.created_at==='number'?message.created_at*1000:Date.parse(message.created_at||'');
+    const text=cleanIncoming(String(message.content||''));
+    if(!Number.isFinite(epoch)||epoch<Date.parse(config().effectiveFrom)||!text||humanRequest(text)||optedOut(text))return null;
+    // Reconciliation must retain the same mail-loop and rate guards as ingress.
+    if(c.channel==='email'&&(isAutomaticMail(message,text)||await this.automaticEmail(message,c.conversation_id)))return null;
+    const recent=await db.query("SELECT count(*)::int n FROM inbox_v2_events WHERE account_id=$1 AND conversation_id=$2 AND kind='message_created' AND created_at>now()-interval '1 minute'",[c.account_id,c.conversation_id]);
+    return recent.rows[0].n>20?null:text;
+  }
   async linkIdentity(actor:Actor,input:any){
     const b=z.object({conversationId:z.number().int().positive(),otherConversationId:z.number().int().positive(),expectedRevision:z.number().int().min(0),otherExpectedRevision:z.number().int().min(0),confirmed:z.literal(true),reason:z.string().min(8).max(500),evidenceRefs:z.array(z.string().min(4).max(200)).min(1).max(10),requestId:z.uuid()}).parse(input);
     await this.cw.allowed(actor,b.conversationId);await this.cw.allowed(actor,b.otherConversationId);
@@ -129,7 +164,7 @@ export class InboxAutomation implements OnApplicationBootstrap, OnModuleDestroy 
       // Offline form submissions are a human callback queue, not a live AI chat.
       // Read the server-created native attribute, not a visitor's custom fields.
       if(current.additional_attributes?.ake_offline_submission===true) {
-        await db.query("UPDATE inbox_v2_conversations SET mode='human_pending' WHERE account_id=$1 AND conversation_id=$2",[cfg.accountId,cid]);
+        await db.query("UPDATE inbox_v2_conversations SET mode='human_pending',reception_hold=true WHERE account_id=$1 AND conversation_id=$2",[cfg.accountId,cid]);
         await this.store.cancel(group,'offline_callback',db,cid);
         return {accepted:true,mode:'human_pending',offlineCallback:true};
       }
@@ -138,16 +173,20 @@ export class InboxAutomation implements OnApplicationBootstrap, OnModuleDestroy 
         await this.store.cancel(group,'opted_out',db);return {accepted:true,mode:'opted_out'};
       }
       if(humanRequest(text)) {
-        await db.query("UPDATE inbox_v2_conversations SET mode='human_pending' WHERE account_id=$1 AND conversation_id=$2",[cfg.accountId,cid]);
+        await db.query("UPDATE inbox_v2_conversations SET mode='human_pending',reception_hold=true WHERE account_id=$1 AND conversation_id=$2",[cfg.accountId,cid]);
         await this.store.cancel(group,'human_requested',db,cid);
       }
       if(occurred.getTime()<Date.parse(cfg.effectiveFrom))return {accepted:true,historical:true};
       if(channel==='email' && (isAutomaticMail(body,text)||await this.automaticEmail(body,cid)))return {accepted:true,automaticMail:true};
       const recent=await db.query("SELECT count(*)::int n FROM inbox_v2_events WHERE account_id=$1 AND conversation_id=$2 AND kind='message_created' AND created_at>now()-interval '1 minute'",[cfg.accountId,cid]);
       if(recent.rows[0].n>20){await this.store.audit('system','rate_limited',String(cid),{},db);return {accepted:true,rateLimited:true};}
+      if(cfg.officeReception){
+        await db.query('UPDATE inbox_v2_conversations SET reception_managed=true WHERE account_id=$1 AND conversation_id=$2',[cfg.accountId,cid]);
+        conv=await this.routeReception((await this.store.conversation(cid,db))!,db);
+      }
       const validInquiry=/parking|anpr|lpr|rfid|barrier|project|integrat|停车|项目|车牌|道闸|车位|系统/i.test(text)||Boolean(this.store.unpack(conv.profile)?.fields?.products?.length);
       if(validInquiry&&!conv.blocked&&!conv.opted_out)await this.store.job('okki','okki:'+cid+':'+messageId,cid,group,conv.revision,{messageId,text},new Date(),db);
-      if(!stopReason(conv)&&!humanRequest(text)&&text)await this.store.job('ai','ai:'+cid+':'+messageId,cid,group,conv.revision,{messageId,text},new Date(),db);
+      if(!stopReason(conv)&&!humanRequest(text)&&text)await this.store.job('ai',cfg.officeReception?`reception:${cid}:${messageId}:${conv.revision}`:'ai:'+cid+':'+messageId,cid,group,conv.revision,{messageId,text},new Date(),db);
       return {accepted:true,durable:true};
     });
   }
@@ -184,6 +223,7 @@ export class InboxAutomation implements OnApplicationBootstrap, OnModuleDestroy 
       if(command.action==='resume'&&(latest.blocked||latest.opted_out))throw new ConflictException('Blocked or opted-out contacts cannot resume automatically');
       const mode=command.action==='resume'?'ai':command.action==='pause'?'paused':['cancel_followups','verify_identity'].includes(command.action)?latest.mode:'human';
       await db.query('UPDATE inbox_v2_conversations SET mode=$3,revision=revision+1 WHERE account_id=$1 AND conversation_id=$2',[config().accountId,cid,mode]);
+      if(['resume','pause'].includes(command.action))await db.query('UPDATE inbox_v2_conversations SET reception_hold=$3 WHERE account_id=$1 AND conversation_id=$2',[config().accountId,cid,command.action==='pause']);
       if(command.action==='verify_identity')await db.query('UPDATE inbox_v2_contacts SET identity_verified=true WHERE account_id=$1 AND contact_id=$2',[config().accountId,latest.contact_id]);
       if(['block','unblock','unsubscribe'].includes(command.action)) {
         const column=command.action==='unsubscribe'?'opted_out':'blocked';
@@ -206,6 +246,7 @@ export class InboxAutomation implements OnApplicationBootstrap, OnModuleDestroy 
     if(!c){if(jobId)return {allowed:false,reason:'unindexed'};const native=await this.cw.account('/conversations/'+cid);return {allowed:!native.meta?.sender?.blocked&&!!config().channels[String(native.inbox_id)]};}
     if(c.blocked||c.opted_out)return {allowed:false,reason:c.blocked?'blocked':'opted_out'};
     if(!jobId)return {allowed:true}; // Native human replies use the human-reply hook, not the AI mode gate.
+    if(config().officeReception&&(!config().modelReady||(await this.cw.reception(cid,true)).onlineCount>0))return {allowed:false,reason:'reception_not_ai'};
     const job=(await this.store.db.query('SELECT * FROM inbox_v2_jobs WHERE id=$1 AND account_id=$2 AND conversation_id=$3',[jobId,config().accountId,cid])).rows[0];
     return {allowed:config().autoSend&&config().autoChannels.includes(c.channel)&&(!config().testContacts.length||config().testContacts.includes(Number(c.contact_id)))&&!stopReason(c)&&c.revision===revision&&!!job&&['processing','sent','accepted'].includes(job.state),reason:stopReason(c)||null};
   }
@@ -232,7 +273,7 @@ export class InboxAutomation implements OnApplicationBootstrap, OnModuleDestroy 
     if(!knowledge.length && /\?|？/.test(input.text))return this.handoff(job,'knowledge_not_covered');
     const response=await fetch(config().modelUrl+'/generate',{method:'POST',signal:AbortSignal.timeout(80000),headers:{'content-type':'application/json','x-inbox-key':config().internalKey},body:JSON.stringify({messages,profile,knowledge:knowledge.map(k=>({id:k.id,version:k.version,title:k.title,body:k.body,conditions:k.tags.conditions})),maxQuestions:2})});
     if(!response.ok)throw new Error('model_unavailable');const d:any=await response.json();
-    if(d.mode!=='codex'||typeof d.reply!=='string'||d.reply.length>2000||(d.reply.match(/[?？]/g)||[]).length>2)throw new Error('invalid_model_response');
+    if(d.mode!=='api'||typeof d.reply!=='string'||d.reply.length>2000||(d.reply.match(/[?？]/g)||[]).length>2)throw new Error('invalid_model_response');
     if((d.askedFields||[]).some((key:string)=>profile.fields[key]!==null&&profile.fields[key]!==undefined&&(!Array.isArray(profile.fields[key])||profile.fields[key].length)))throw new Error('repeated_known_question');
     const fields=fieldsSchema.parse(d.fields),review:any[]=[],source=messages.filter(m=>m.role==='customer').map(m=>m.text).join('\n');
     const evidence=Array.isArray(d.evidence)?d.evidence:[];
@@ -256,10 +297,10 @@ export class InboxAutomation implements OnApplicationBootstrap, OnModuleDestroy 
         await this.store.job('okki','analysis:'+job.id,c.conversation_id,c.group_key,current.revision,{messageId:input.messageId,text:String(d.summary||'')},new Date(),db);
     });
     if(d.needsHuman)return this.handoff(job,'model_requested_human');
-    await this.store.finish(job.id,'done',{mode:'codex',knowledgeIds:cited});
+    await this.store.finish(job.id,'done',{mode:'api',knowledgeIds:cited});
   }
   async handoff(job:Job,reason:string) {
-    await this.store.db.query("UPDATE inbox_v2_conversations SET mode='human_pending',revision=revision+1 WHERE account_id=$1 AND conversation_id=$2 AND revision=$3",[config().accountId,job.conversation_id,job.revision]);
+    await this.store.db.query("UPDATE inbox_v2_conversations SET mode='human_pending',reception_hold=true,revision=revision+1 WHERE account_id=$1 AND conversation_id=$2 AND revision=$3",[config().accountId,job.conversation_id,job.revision]);
     await this.store.finish(job.id,'review',{},reason);
     await this.cw.account('/conversations/'+job.conversation_id+'/toggle_status',{status:'open'}).catch(()=>undefined);
   }
@@ -271,6 +312,7 @@ export class InboxAutomation implements OnApplicationBootstrap, OnModuleDestroy 
       if(!config().autoSend||!c||!config().autoChannels.includes(c.channel)||(config().testContacts.length&&!config().testContacts.includes(Number(c.contact_id)))||stopReason(c)||c.revision!==job.revision)return this.store.finish(job.id,'cancelled',{},null,db);
       const native:any=await this.cw.account('/conversations/'+c.conversation_id);
       if(native.meta?.sender?.blocked||native.status==='resolved')return this.store.finish(job.id,'cancelled',{},null,db);
+      if(config().officeReception&&(!config().modelReady||(await this.cw.reception(c.conversation_id)).onlineCount>0))return this.store.finish(job.id,'cancelled',{},'reception_changed',db);
       const payload=this.store.unpack(job.payload);
       if(job.kind==='followup' && (c.followup_count>=2 || Date.now()-new Date((job as any).due_at||Date.now()).getTime()>6*3600000))return this.store.finish(job.id,'cancelled',{},'followup_expired',db);
       if(job.kind==='followup') {
@@ -312,6 +354,7 @@ export class InboxAutomation implements OnApplicationBootstrap, OnModuleDestroy 
   async tick(lane='effects') {
     if(this.busy.has(lane)||!config().enabled)return;this.busy.add(lane);
     try {
+      if(lane==='reception'){await this.reconcileReception();return;}
       if(lane==='maintenance'){
         if(Date.now()-this.lastMaintenance<300000)return;this.lastMaintenance=Date.now();await this.store.recover();await this.exports.cleanup();
         const links=(await this.store.db.query("SELECT group_key FROM inbox_v2_links WHERE account_id=$1 AND (refreshed_at IS NULL OR refreshed_at<now()-interval '5 minutes') LIMIT 50",[config().accountId])).rows;
@@ -336,6 +379,6 @@ export class InboxAutomation implements OnApplicationBootstrap, OnModuleDestroy 
       }
     }finally{this.busy.delete(lane);}
   }
-  onApplicationBootstrap(){if(config().enabled){this.timer=setInterval(()=>{for(const lane of ['model','crm','effects','maintenance'])void this.tick(lane).catch(()=>undefined);},1000);this.timer.unref();}}
+  onApplicationBootstrap(){if(config().enabled){this.timer=setInterval(()=>{for(const lane of ['model','crm','effects','maintenance','reception'])void this.tick(lane).catch(()=>undefined);},1000);this.timer.unref();}}
   onModuleDestroy(){if(this.timer)clearInterval(this.timer);}
 }

@@ -64,7 +64,7 @@ export function config() {
   const enabled = process.env.INBOX_V2_ENABLED === 'true';
   const effectiveFrom = process.env.INBOX_EFFECTIVE_FROM || '';
   if (enabled && (!process.env.FIELD_ENCRYPTION_KEY || !process.env.DATABASE_URL || !process.env.INBOX_INTERNAL_KEY || !process.env.CHATWOOT_API_TOKEN || !Number.isFinite(Date.parse(effectiveFrom)))) throw new Error('Inbox v0.2 requires encryption, database, internal authentication, Chatwoot and cutover date');
-  return { enabled, accountId: Number(process.env.INBOX_ACCOUNT_ID || 1), channels,
+  return { enabled, officeReception: process.env.INBOX_OFFICE_RECEPTION === 'true', modelReady: process.env.INBOX_MODEL_READY === 'true', accountId: Number(process.env.INBOX_ACCOUNT_ID || 1), channels,
     excluded: (process.env.INBOX_EXCLUDED_CONVERSATIONS || '').split(',').filter(Boolean).map(Number),
     autoSend: process.env.INBOX_AUTO_SEND === 'true', autoChannels:(process.env.INBOX_AUTO_CHANNELS||'').split(',').filter(Boolean), testContacts:(process.env.INBOX_TEST_CONTACT_IDS||'').split(',').filter(Boolean).map(Number), okkiWrite: process.env.OKKI_WRITE_ENABLED === 'true',
     effectiveFrom, chatwootUrl: (process.env.CHATWOOT_URL || '').replace(/\/$/, ''),

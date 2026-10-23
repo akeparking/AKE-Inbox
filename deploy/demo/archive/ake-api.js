@@ -17,4 +17,7 @@
     if(!response.ok) throw new Error(response.status===401?'登录已过期，请重新登录 Inbox。':data.error||'操作未完成，请稍后重试。');
     return data;
   };
+  if (!location.pathname.startsWith('/widget')) {
+    const script = document.createElement('script'); script.src = '/ake/assets/ake-reception.js'; script.defer = true; document.head.append(script);
+  }
 })();

@@ -63,7 +63,7 @@ class AkeSeatAssetsController < ActionController::Base
 
   def asset
     name = params[:name]
-    return head :not_found unless %w[ake-seat-channels.js ake-seat-nav.js ake-offline-widget.js ake-conversation-widget.js ake-customers.js ake-api.js ake-marketing.js].include?(name)
+    return head :not_found unless %w[ake-seat-channels.js ake-seat-nav.js ake-offline-widget.js ake-conversation-widget.js ake-customers.js ake-api.js ake-marketing.js ake-reception.js].include?(name)
 
     response.headers['Cache-Control'] = 'no-cache'
     render plain: File.read('/opt/ake-archive/' + name), content_type: 'application/javascript'
@@ -197,7 +197,9 @@ class Api::V1::Widget::AkeOfflineController < Api::V1::Widget::BaseController
     return head :not_found unless AkeSeatRouting.enabled?(@web_widget.inbox.account_id)
 
     response.headers['Cache-Control'] = 'no-store'
-    render json: { online: AkeSeatRouting.eligible_ids(@web_widget.inbox).any? }
+    human = AkeSeatRouting.eligible_ids(@web_widget.inbox).any?
+    ai = ENV['AKE_OFFICE_RECEPTION_ENABLED'] == 'true' && ENV['AKE_OFFICE_AI_READY'] == 'true'
+    render json: { online: human || ai, reception: human ? 'human' : ai ? 'ai' : 'offline' }
   end
 
   def create
