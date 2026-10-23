@@ -60,13 +60,14 @@ describe.skipIf(!process.env.META_FEEDBACK_TEST_DATABASE_URL)('Manual Meta feedb
     fetchMock.mockReset(); vi.stubGlobal('fetch', fetchMock);
     Object.assign(process.env, { META_FEEDBACK_ENABLED: 'true', META_FEEDBACK_MODE: 'mock', META_DATASET_ID: '123456789012345', META_ACCESS_TOKEN: 'fictional-token', META_TEST_EVENT_CODE: 'TEST_FIXTURE', MARKETING_TEST_MODE: 'false' });
     await repo.db.query('TRUNCATE marketing_sites,workspaces,inbox_v2_audit CASCADE');
+    await repo.db.query('TRUNCATE marketing_meta_legacy_receipts');
     await repo.db.query("INSERT INTO workspaces(id,name) VALUES('fixture','Fixture')");
     await repo.db.query("INSERT INTO leads(id,workspace_id,provider,source_kind,display_name,is_test) VALUES('lead-fixture','fixture','meta','website','Fictional',false)");
     await repo.db.query("INSERT INTO marketing_sites(id,account_id,name,origin,inbox_id,enabled) VALUES('fixture',1,'Fixture','https://example.invalid',1,true)");
     const consent = randomUUID(), visitor = randomUUID(), visit = randomUUID(), inquiry = randomUUID();
     await repo.db.query("INSERT INTO marketing_consents(id,site_id,choices,policy_version) VALUES($1,'fixture',$2,'fixture')", [consent, grant]);
     await repo.db.query("INSERT INTO marketing_visitors(id,site_id,first_touch,consent_id) VALUES($1,'fixture','{}',$2)", [visitor, consent]);
-    await repo.db.query("INSERT INTO marketing_visits(id,visitor_id,site_id,current_touch) VALUES($1,$2,'fixture',$3)", [visit, visitor, { pageUrl: 'https://example.invalid/product', identifiersCipher: repo.pack({ fbc: 'fb.1.1234567890000.fictional_click' }) }]);
+    await repo.db.query("INSERT INTO marketing_visits(id,visitor_id,site_id,current_touch) VALUES($1,$2,'fixture',$3)", [visit, visitor, { pageUrl: 'https://example.invalid/product', identifiersCipher: repo.pack({ fbc: 'fb.1.1234567890000.fictional_click' }),browserCipher:repo.pack({userAgent:'Fictional browser acceptance fixture'}) }]);
     const payload = repo.pack({ definition: { fields: [{ key: 'email', mapping: 'email' }, { key: 'phone', mapping: 'phone' }] }, fields: { email: 'QA@Example.Invalid', phone: '+1 (555) 555-0123' } });
     row = (await repo.db.query("INSERT INTO marketing_inquiries(id,site_id,account_id,source_submission_id,source_kind,request_hash,payload,visitor_id,visit_id,consent_id,lead_id,message_id,created_at,qualified_at) VALUES($1::uuid,'fixture',1,$1::text,'form','fixture',$2,$3,$4,$5,'lead-fixture',1,now()-interval '10 minutes',now()-interval '5 minutes') RETURNING *", [inquiry, payload, visitor, visit, consent])).rows[0];
   });
@@ -82,6 +83,7 @@ describe.skipIf(!process.env.META_FEEDBACK_TEST_DATABASE_URL)('Manual Meta feedb
     expect(fetchMock).not.toHaveBeenCalled();
     const events = (await repo.db.query('SELECT payload FROM marketing_meta_feedback ORDER BY occurred_at')).rows.map(r => repo.unpack(r.payload).data[0]);
     expect(events[0]).toMatchObject({ action_source: 'website', event_source_url: 'https://example.invalid/product' });
+    expect(events[0].user_data.client_user_agent).toBe('Fictional browser acceptance fixture');
     expect(events[1].action_source).toBe('other'); expect(events[1].custom_data.event_source).toBeUndefined();
     expect(events[0].user_data.em[0]).toHaveLength(64); expect(JSON.stringify(events)).not.toContain('QA@');
     expect(events[0].event_id).not.toBe(events[1].event_id);
@@ -128,6 +130,11 @@ describe.skipIf(!process.env.META_FEEDBACK_TEST_DATABASE_URL)('Manual Meta feedb
     await repo.db.query("UPDATE marketing_consents SET choices='{}' WHERE id=$1", [row.consent_id]);
     await expect(ready()).rejects.toThrow('同意');
   });
+  it('does not invent missing browser context for a website Lead', async () => {
+    await repo.db.query("UPDATE marketing_visits SET current_touch=current_touch-'browserCipher' WHERE id=$1",[row.visit_id]);
+    await expect(ready()).rejects.toThrow('原始浏览器信息');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
   it('holds uncertain outcomes without replaying them or inventing matching', async () => {
     process.env.META_FEEDBACK_MODE = 'test'; fetchMock.mockRejectedValue(Error('timeout'));
     const a = await ready(); expect((await meta.send(admin, row, a.id)).status).toBe('review');
@@ -147,6 +154,8 @@ describe.skipIf(!process.env.META_FEEDBACK_TEST_DATABASE_URL)('Manual Meta feedb
     await expect(meta.send(admin, row, a.id)).rejects.toThrow('配置');
     await repo.db.query("UPDATE leads SET is_test=true WHERE id='lead-fixture'");
     await expect(ready()).rejects.toThrow('测试询盘');
+    process.env.META_FEEDBACK_MODE = 'test';
+    await expect(ready()).rejects.toThrow('Test Events');
     expect(fetchMock).not.toHaveBeenCalled();
   });
   it('recovers an interrupted claim to review without a new upload', async () => {
@@ -160,5 +169,39 @@ describe.skipIf(!process.env.META_FEEDBACK_TEST_DATABASE_URL)('Manual Meta feedb
     const a = await ready();
     const event = repo.unpack((await repo.db.query('SELECT payload FROM marketing_meta_feedback WHERE id=$1', [a.id])).rows[0].payload).data[0];
     expect(event.event_time).toBe(Math.floor(new Date(row.created_at).getTime()/1000));
+  });
+  it('never uploads an accepted Test Event again after switching to Live', async () => {
+    process.env.META_FEEDBACK_MODE = 'test';
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify({ events_received: 1, fbtrace_id: 'trace_test_live' })));
+    const a = await ready(); await meta.send(admin,row,a.id);
+    process.env.META_FEEDBACK_MODE = 'live';
+    await expect(ready()).rejects.toThrow('已有 Meta 发送记录');
+    const q = await ready('QualifiedLead');
+    expect((await meta.send(admin,row,q.id)).status).toBe('accepted');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse((fetchMock.mock.calls[1] as any)[1].body).test_event_code).toBeUndefined();
+  });
+  it('rechecks cross-mode claims prepared before another mode sends', async () => {
+    process.env.META_FEEDBACK_MODE = 'test'; const test = await ready();
+    process.env.META_FEEDBACK_MODE = 'live'; const live = await ready();
+    process.env.META_FEEDBACK_MODE = 'test'; fetchMock.mockRejectedValue(Error('response lost'));
+    expect((await meta.send(admin,row,test.id)).status).toBe('review');
+    process.env.META_FEEDBACK_MODE = 'live';
+    await expect(meta.send(admin,row,live.id)).rejects.toThrow('已有 Meta 发送记录');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+  it('honors imported receipts but never treats a mistaken qualification as a valid stage', async () => {
+    process.env.META_FEEDBACK_MODE = 'test';
+    const b = { sourceType:'instant_form',metaLeadId:'1234567890123456',leadGeneratedAt:new Date(Date.now()-7200000).toISOString(),consentConfirmed:true };
+    const subject = repo.identity('instant_form:'+b.metaLeadId);
+    for (const [name,status,time] of [['Lead','accepted',row.created_at],['QualifiedLead','sent_in_error',row.qualified_at]]) {
+      await repo.db.query('INSERT INTO marketing_meta_legacy_receipts(id,account_id,dataset_id,subject_key,event_name,event_id,occurred_at,status,evidence) VALUES($1,1,$2,$3,$4,$1,$5,$6,$7)',
+        ['legacy:'+name,process.env.META_DATASET_ID,subject,name,time,status,repo.pack({source:'fictional audited ledger'})]);
+    }
+    await expect(ready('Lead',b)).rejects.toThrow('已有 Meta 发送记录');
+    await expect(ready('QualifiedLead',b)).rejects.toThrow('已有 Meta 发送记录');
+    const converted = await ready('ConvertedLead',{...b,occurredAt:new Date().toISOString()});
+    await expect(meta.send(admin,row,converted.id)).rejects.toThrow('此前阶段');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
