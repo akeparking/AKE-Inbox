@@ -4,6 +4,8 @@ require 'ostruct'
 require 'active_support/all'
 
 ENV['AKE_ARCHIVE_ROOT'] = Dir.mktmpdir('ake-archive-test-')
+# The isolated test owns its archive; no privileged production group is assumed.
+ENV['AKE_ARCHIVE_GID'] = Process.gid.to_s
 module Rails
   def self.application = OpenStruct.new(config: self)
   def self.to_prepare; end
