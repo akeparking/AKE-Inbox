@@ -16,7 +16,7 @@ Inbox v0.2.0 的增量功能：管理员在询盘详情中准备真实阶段事�
 | 网站收件 | `Lead` | `website`，原始 `event_source_url` | 实际收件时间；同意后的 fbc 或散列联系方式 |
 | 网站线索在 Inbox 人工确认有效 | `QualifiedLead` | `other` | 真实人工确认时间；不冒充原生表单 Conversion Leads |
 | 网站线索人工确认成交 | `ConvertedLead` | `other` | 操作者提供的真实成交时间及依据；不创建订单或收入 |
-| Meta 原生表单的以上三个阶段 | 同名事件 | `system_generated`；`event_source=crm`；`lead_event_source` | 核验的原生 `leadgen_id`，阶段时间不能早于线索生成时间 |
+| Meta 原生表单的以上三个阶段 | 同名事件 | `system_generated`；`event_source=crm`；`lead_event_source` | 核验的原生 `leadgen_id`；Lead 使用 Meta 原始提交时间，有效阶段使用人工确认时间，成交使用真实成交时间 |
 
 网站点击标识从实际观察到的 `fbclid` 生成 fbc 并加密保存；无广告数据同意时不采集。Google 点击标识保持独立。邮箱按小写、去首尾空格后 SHA-256；电话须是明确的国际号码，去符号后 SHA-256。不发送明文联系方式。原生表单 ID 不散列，不得使用 OKKI ID、广告 ID 或网站线索 ID 代替。
 
