@@ -63,6 +63,8 @@
     const rawApi=api;api=async(...args)=>{const result=await rawApi(...args);if(result.metaError)throw Error(result.metaError);return result;};
     const root = el('section', null, 'panel'); if(heading)root.append(el('h2', 'Meta Ads 回传'));
     root.append(el('p', `${modes[settings.mode]} · ${settings.enabled ? '已启用' : '未启用'}${settings.mode === 'mock' ? ' · 不上传到 Meta' : settings.configured ? ' · 数据集已配置' : ' · 等待数据集配置'}`, 'notice'));
+    if (settings.mode === 'test' && !settings.testCodeConfigured) root.append(el('p', '等待当前数据集的 Test Events 测试代码，尚不能发送。', 'notice'));
+    if (settings.mode === 'test') root.append(el('p', 'Test Events 会真实发送到 Meta，并可能用于广告衡量；切换正式模式后，同一阶段仍不重复发送。', 'notice'));
     root.append(el('p', '按收到线索、有效线索、成交线索的顺序回传。已受理仅表示收到事件，广告匹配状态仍需在 Meta 核对。', 'muted'));
     if (inquiry && settings.enabled) root.append(button('准备回传事件', () => prepare({ inquiry, api, reload })));
     else if (!inquiry) root.append(el('p', '在询盘详情中核验阶段并准备事件，然后在此一键回传。', 'muted'));

@@ -21,6 +21,16 @@ describe.skipIf(!process.env.MARKETING_TEST_DATABASE_URL)('Remaining marketing g
  afterAll(async()=>{await repo?.onModuleDestroy();if(archive)await rm(archive,{recursive:true,force:true});});
  beforeEach(async()=>{native.clear();vi.clearAllMocks();await repo.db.query('TRUNCATE marketing_sites,marketing_bridge_owners,marketing_bridge_dispatches,marketing_waha_sends,inbox_v2_contacts,inbox_v2_conversations,inbox_v2_jobs,inbox_v2_events,inbox_v2_links,inbox_v2_audit CASCADE');await repo.db.query('INSERT INTO marketing_sites(id,account_id,name,origin,inbox_id,settings,enabled) VALUES($1,1,$1,$2,3,$3,true)',[siteId,origin,{iframeOrigins:['https://form.fictional.invalid']}]);await repo.db.query('INSERT INTO marketing_forms(id,site_id,name,draft,published_version) VALUES($1,$2,$3,$4,1)',[formId,siteId,'Fixture',{fields:[]}]);const def={heading:'Fixture',submitLabel:'Send',successMessage:'Received',language:'en',placement:'inline',fields:[{key:'message',type:'textarea',label:'Message',required:true,mapping:'message',options:[]}]};await repo.db.query('INSERT INTO marketing_form_versions(form_id,version,definition,published_by) VALUES($1,1,$2,$3)',[formId,def,'7']);});
  const session=()=>marketing.session({siteId,pageUrl:origin+'/product',consent:grant,policyVersion:'fixture'},origin);
+ it('captures browser context only with advertising consent and keeps it out of visitor responses',async()=>{
+   const input={siteId,pageUrl:origin+'/product',consent:grant,policyVersion:'fixture'};
+   const denied=await marketing.session(input,origin,'Fictional browser fixture');
+   expect((await repo.db.query('SELECT current_touch FROM marketing_visits WHERE id=$1',[denied.visitId])).rows[0].current_touch.browserCipher).toBeNull();
+   const allowed=await marketing.session({...input,consent:{...grant,adStorage:'granted',adUserData:'granted'}},origin,'Fictional browser fixture');
+   const t=(await repo.db.query('SELECT current_touch FROM marketing_visits WHERE id=$1',[allowed.visitId])).rows[0].current_touch;
+   expect(repo.unpack(t.browserCipher).userAgent).toBe('Fictional browser fixture');
+   const visible=JSON.stringify(await marketing.action(admin,'visitor',{id:allowed.visitorId}));
+   expect(visible).not.toContain('Fictional browser fixture');expect(visible).not.toContain('browserCipher');
+ });
  it('G01 traverses more than 200 visitors and 1000 events without loss or duplicate rows',async()=>{
    const s=await session();await repo.db.query('INSERT INTO marketing_visitors(id,site_id,first_touch,consent_id) SELECT gen_random_uuid(),$1,$2,$3 FROM generate_series(1,220)',[siteId,{},(await repo.db.query('SELECT consent_id FROM marketing_visitors WHERE id=$1',[s.visitorId])).rows[0].consent_id]);
    let cursor,seen:string[]=[];do{const d:any=await marketing.action(admin,'visitors',{limit:37,cursor});seen.push(...d.visitors.map((v:any)=>v.id));cursor=d.nextCursor;}while(cursor);expect(seen.length).toBe(221);expect(new Set(seen).size).toBe(221);

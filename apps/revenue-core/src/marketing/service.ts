@@ -28,9 +28,10 @@ export class MarketingService {
     if(!row)throw new NotFoundException('Registered site unavailable');
     if(origin!==undefined&&origin!==row.origin)throw new ForbiddenException('Site origin mismatch');return row;
   }
-  private protectedTouch(page:string,ref:string,consent:any){const t=touch(page,ref,consent);const {identifiers,...publicTouch}=t;return {...publicTouch,identifiersCipher:Object.keys(identifiers).length?this.repo.pack(identifiers):null};}
-  private displayTouch(t:any){if(!t)return null;const {identifiersCipher,...rest}=t;return {...rest,hasAdIdentifier:!!identifiersCipher};}
-  async session(input:unknown,origin:string){
+  private protectedTouch(page:string,ref:string,consent:any,userAgent?:string){const t=touch(page,ref,consent);const {identifiers,...publicTouch}=t;return {...publicTouch,identifiersCipher:Object.keys(identifiers).length?this.repo.pack(identifiers):null,
+    browserCipher:consent.adStorage==='granted'&&consent.adUserData==='granted'&&userAgent?this.repo.pack({userAgent:userAgent.slice(0,1000)}):null};}
+  private displayTouch(t:any){if(!t)return null;const {identifiersCipher,browserCipher,...rest}=t;return {...rest,hasAdIdentifier:!!identifiersCipher};}
+  async session(input:unknown,origin:string,userAgent?:string){
     this.ready();const b=sessionSchema.parse(input),site=await this.site(b.siteId,origin);
     if(new URL(b.pageUrl).origin!==site.origin)throw new ForbiddenException('Page origin mismatch');
     const prior=readToken(b.visitorToken||''),priorVisit=readToken(b.visitToken||'');
@@ -42,7 +43,7 @@ export class MarketingService {
         if(old&&b.consent.analytics!=='granted')await db.query('UPDATE marketing_visitors SET revoked_at=now(),consent_id=$2 WHERE id=$1',[old.id,consentId]);
         return {sessionToken:signToken({siteId:site.id,visitorId:null,visitId:null,consentId,exp:Date.now()+3600000}),visitorToken:null,visitToken:null,coverage:{analytics:b.consent.analytics,captureEnabled:process.env.ATTRIBUTION_CAPTURE_ENABLED==='true',storageAvailable:b.storageAvailable,history:'not_collected'}};
       }
-      let vid=old&&!old.revoked_at?old.id:randomUUID();const t=this.protectedTouch(b.pageUrl,b.referrer,b.consent);
+      let vid=old&&!old.revoked_at?old.id:randomUUID();const t=this.protectedTouch(b.pageUrl,b.referrer,b.consent,userAgent);
       if(vid===old?.id)await db.query('UPDATE marketing_visitors SET consent_id=$2,last_seen_at=now() WHERE id=$1',[vid,consentId]);
       else await db.query('INSERT INTO marketing_visitors(id,site_id,first_touch,consent_id) VALUES($1,$2,$3,$4)',[vid,site.id,t,consentId]);
       const idle=Number(site.settings.sessionMinutes||30);

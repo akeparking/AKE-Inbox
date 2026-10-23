@@ -30,13 +30,20 @@ export class MetaFeedback {
     if (!['mock', 'test', 'live'].includes(mode)) throw new ServiceUnavailableException('Meta 回传模式无效');
     const enabled = process.env.META_FEEDBACK_ENABLED === 'true';
     const configured = !!config.accessToken && /^\d{5,30}$/.test(config.datasetId || '') && /^v\d+\.0$/.test(config.graphVersion);
-    return { enabled, mode, datasetId: config.datasetId || (mode === 'mock' ? 'mock-dataset' : ''),
+    return { enabled, mode, datasetId: config.datasetId || (mode === 'mock' ? 'mock-dataset' : ''), testCodeConfigured: !!process.env.META_TEST_EVENT_CODE,
       configured, canSend: enabled && (mode === 'mock' || (configured && (mode !== 'test' || !!process.env.META_TEST_EVENT_CODE))),
       testCode: mode === 'test' ? process.env.META_TEST_EVENT_CODE : undefined };
   }
   publicSettings() { const { testCode, ...safe } = this.settings(); return safe; }
   private admin(actor: Actor) { if (actor.role !== 'administrator') throw new ForbiddenException('Meta 回传需要管理员权限'); }
   private enabled() { if (!this.settings().enabled) throw new ServiceUnavailableException('Meta Ads 回传尚未启用'); }
+  private async alreadyDispatched(db: any, datasetId: string, subjectKey: string, eventName: string, exceptId?: string) {
+    const prior = await db.query(`SELECT 1 FROM marketing_meta_feedback WHERE dataset_id=$1 AND subject_key=$2 AND event_name=$3
+      AND mode IN ('test','live') AND status IN ('sending','test','accepted','review') AND ($4::uuid IS NULL OR id<>$4)
+      UNION ALL SELECT 1 FROM marketing_meta_legacy_receipts WHERE dataset_id=$1 AND subject_key=$2 AND event_name=$3 LIMIT 1`,
+      [datasetId,subjectKey,eventName,exceptId || null]);
+    if (prior.rows.length) throw new ConflictException('该阶段已有 Meta 发送记录（含测试或旧网关），不能重复回传；结果未知时须先核对');
+  }
   async rows(accountId: number, inquiryId?: string) {
     // A crashed process never converts an ambiguous upload into a fresh upload.
     await this.repo.db.query("UPDATE marketing_meta_feedback SET status='review',error_code='META_INTERRUPTED',updated_at=now() WHERE account_id=$1 AND status='sending' AND updated_at<now()-interval '2 minutes'", [accountId]);
@@ -52,7 +59,8 @@ export class MetaFeedback {
       if (c?.identity_conflict || c?.opted_out || c?.blocked) throw new ConflictException('联系人存在身份冲突、退订或屏蔽');
     }
     const lead = (await this.repo.db.query('SELECT is_test FROM leads WHERE id=$1', [row.lead_id])).rows[0];
-    if (mode === 'live' && (lead?.is_test !== false || process.env.MARKETING_TEST_MODE === 'true')) throw new ConflictException('测试询盘不能向正式数据集回传');
+    if (mode !== 'mock' && lead?.is_test !== false) throw new ConflictException('虚构测试询盘不能发送至 Meta，包括 Test Events');
+    if (mode === 'live' && process.env.MARKETING_TEST_MODE === 'true') throw new ConflictException('本地测试环境尚未启用正式回传');
     if (sourceType === 'website') {
       if (!['form', 'website', 'backend_form'].includes(row.source_kind)) throw new ConflictException('该询盘不是网站收件');
       const consent = (await this.repo.db.query('SELECT choices FROM marketing_consents WHERE id=$1 AND site_id=$2', [row.consent_id, row.site_id])).rows[0]?.choices;
@@ -92,6 +100,11 @@ export class MetaFeedback {
       if (!Object.keys(userData).length) throw new ConflictException('缺少可匹配的 Meta 点击标识或已获同意的联系方式');
       sourceUrl = visit?.pageUrl;
       if (b.eventName === 'Lead' && !sourceUrl) throw new ConflictException('网站 Lead 缺少原始来源网址');
+      if (b.eventName === 'Lead') {
+        const browser = this.repo.unpack(visit?.browserCipher);
+        if (!browser?.userAgent) throw new ConflictException('网站 Lead 缺少原始浏览器信息，不能使用服务器信息代替');
+        userData.client_user_agent = browser.userAgent;
+      }
     }
     const subjectKey = this.repo.identity(subject), eventId = b.sourceType==='website'&&b.eventName==='Lead'
       ? 'inbox:website:lead:'+row.id
@@ -108,6 +121,7 @@ export class MetaFeedback {
         if (old.inquiry_id !== row.id) throw new ConflictException('该 Meta 线索阶段已在其他询盘登记，请核对原回执');
         return { id: old.id, duplicate: true };
       }
+      if (settings.mode !== 'mock') await this.alreadyDispatched(db, settings.datasetId, subjectKey, b.eventName);
       const bound = (await db.query('SELECT subject_key,source_type FROM marketing_meta_feedback WHERE account_id=$1 AND inquiry_id=$2 LIMIT 1', [actor.accountId, row.id])).rows[0];
       if (bound && (bound.subject_key !== subjectKey || bound.source_type !== b.sourceType)) throw new ConflictException('询盘已绑定其他来源，不能改号后重新回传');
       const id = randomUUID();
@@ -120,19 +134,24 @@ export class MetaFeedback {
   async send(actor: Actor, inquiry: any, id: string) {
     this.admin(actor); this.enabled(); z.uuid().parse(id);
     if (actor.accountId !== Number(inquiry.account_id)) throw new ForbiddenException();
-    const claim = await this.repo.transaction('meta-send:' + id, async db => {
+    // Test Events also reach Meta measurement. Serialize claims across modes/senders.
+    const claim = await this.repo.transaction('meta-outbound', async db => {
       const row = (await db.query('SELECT * FROM marketing_meta_feedback WHERE id=$1 AND account_id=$2 AND inquiry_id=$3 FOR UPDATE', [id, actor.accountId, inquiry.id])).rows[0];
       if (!row) throw new ForbiddenException('回执不属于此询盘');
       if (row.status !== 'ready' && row.status !== 'rejected') return { duplicate: true, status: row.status };
       const settings = this.settings();
       if (!settings.canSend || row.mode !== settings.mode || row.dataset_id !== settings.datasetId) throw new ConflictException('回传配置已改变或尚未完成，请核对模式与数据集');
+      if (row.mode !== 'mock') await this.alreadyDispatched(db, row.dataset_id, row.subject_key, row.event_name, row.id);
       await this.eligibility(inquiry, row.source_type, row.mode);
       if (this.repo.unpack(row.evidence).attributionKey !== this.repo.identity(JSON.stringify([inquiry.visitor_id,inquiry.visit_id,inquiry.consent_id]))) throw new ConflictException('询盘来源关联已改变，待回传事件需核对');
       const payload = this.repo.unpack(row.payload); checkMetaTime(payload.data[0].event_time);
       if (payload.test_event_code !== settings.testCode) throw new ConflictException('测试事件代码已改变');
       const previous = stages.slice(0, stages.indexOf(row.event_name));
       for (const name of previous) {
-        const accepted = (await db.query("SELECT occurred_at FROM marketing_meta_feedback WHERE account_id=$1 AND dataset_id=$2 AND mode=$3 AND subject_key=$4 AND event_name=$5 AND status=$6", [actor.accountId, row.dataset_id, row.mode, row.subject_key, name, row.mode === 'live' ? 'accepted' : row.mode])).rows[0];
+        const accepted = (await db.query(`SELECT occurred_at FROM marketing_meta_feedback WHERE account_id=$1 AND dataset_id=$2 AND subject_key=$3 AND event_name=$4
+          AND (($5='mock' AND mode='mock' AND status='mock') OR ($5<>'mock' AND mode IN ('test','live') AND status IN ('test','accepted')))
+          UNION ALL SELECT occurred_at FROM marketing_meta_legacy_receipts WHERE account_id=$1 AND dataset_id=$2 AND subject_key=$3 AND event_name=$4 AND status='accepted' AND $5<>'mock'`,
+          [actor.accountId,row.dataset_id,row.subject_key,name,row.mode])).rows[0];
         if (!accepted || unix(accepted.occurred_at) > unix(row.occurred_at)) throw new ConflictException('请先回传此前阶段，并保持真实时间顺序');
       }
       // Do not upload an event already owned by the older generic delivery path.

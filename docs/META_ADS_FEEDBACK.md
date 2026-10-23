@@ -20,6 +20,8 @@ Inbox v0.2.0 的增量功能：管理员在询盘详情中准备真实阶段事�
 
 网站点击标识从实际观察到的 `fbclid` 生成 fbc 并加密保存；无广告数据同意时不采集。Google 点击标识保持独立。邮箱按小写、去首尾空格后 SHA-256；电话须是明确的国际号码，去符号后 SHA-256。不发送明文联系方式。原生表单 ID 不散列，不得使用 OKKI ID、广告 ID 或网站线索 ID 代替。
 
+网站 Lead 的浏览器 User-Agent 从已获广告数据同意的会话请求头采集、加密保存，并只用于对应网站事件。历史记录缺少原始浏览器信息时阻止网站 Lead 回传，不以服务器 User-Agent 补造。
+
 ## 配置与运行
 
 应用已有 PostgreSQL、Inbox 认证及字段加密配置之外，需要：
@@ -36,6 +38,10 @@ META_TEST_EVENT_CODE=
 
 `META_FEEDBACK_MODE` 独立于 Google 的 `ADS_MODE`：`mock` 不访问 Meta；`test` 需要数据集、令牌和当前 Test Events 代码；`live` 拒绝测试询盘且不携带测试代码。令牌仅保留在服务器环境/密钥存储中，通过 Authorization 请求头发送。API 版本必须在实际启用时再次核验，示例版本不是永久有效保证。
 
+Meta 当前 Using the API 文档明确说明，带 `test_event_code` 的事件仍进入 Events Manager，可用于定向及广告衡量。只有 Mock 完全不出站。Test 与 Live 共用发送防重：测试已受理或结果未知的阶段不能在正式模式重发；已受理的测试初始阶段可作为后续真实阶段的前序回执。
+
+标记为虚构测试的询盘不能进入 Test 或 Live，只能 Mock。真实客户的受控 Test Events 验收使用真实客户记录和真实业务事件，不修改旧时间，也不把蓝色官网测试资料发到 Meta。
+
 运行迁移、构建后按现有部署方式加载 Core 和 Chatwoot 扩展。新增迁移为 `007_meta_feedback.sql`，不修改原询盘和 Google 回执。
 
 新增原生认证操作：`meta_feedback`（查看）、`meta_prepare`（准备）、`meta_send`（发送），沿用 `/ake_marketing/:operation` 与管理员权限。浏览器不接触 Meta 令牌。不得直接向公网暴露内部 `marketing/native` 接口。
@@ -49,6 +55,7 @@ META_TEST_EVENT_CODE=
 - `events_received` 必须等于发送数且存在 `fbtrace_id`，才记录已受理；处理和匹配仍保持未知。没有用 Insights 统计或成功 HTTP 状态冒充单条匹配证据。
 - 网站 Lead 使用 `inbox:website:lead:<inquiryId>`。Collector 返回相同 `metaEventId`；只有显式设置 `AKE_MARKETING.metaPixelId` 且页面已存在 fbq、客户已同意时，才调用现有 Pixel 并传同一个 `eventID`。Collector 不安装 Pixel。上线前须核对 GTM/插件中的其他 Lead 发送者，不能并行生成不同 ID。
 - `marketing_meta_feedback` 保存当前状态，`marketing_meta_attempts` 保留每次尝试；日志只保留静态错误码和回执，不保存 Meta 原始错误消息。
+- `marketing_meta_legacy_receipts` 保留核验导入的历史回执及加密来源证据。已受理、误发和结果未知的旧阶段均阻止再次发送；误发记录不会被当作有效的前序阶段。
 
 ## 旧 OKKI 网关如何替换
 
