@@ -8,7 +8,7 @@ jobs:
   ruby-guards:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.4'
@@ -35,7 +35,7 @@ jobs:
       INBOX_TEST_DATABASE_URL: postgresql://postgres:ci-fictional-data-only@127.0.0.1:5432/inbox_test
       MARKETING_TEST_DATABASE_URL: postgresql://postgres:ci-fictional-data-only@127.0.0.1:5432/marketing_test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: actions/setup-node@v4
