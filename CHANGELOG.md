@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.2] - 2026-10-27 (prerelease)
+
+- Preserve retryable native delivery failures when Core admission is unavailable before provider dispatch. Explicit policy blocks are visible as failed messages; final email admission failures cannot be recorded as successful sends.
+- Require current Inbox membership as well as assignment for restricted conversation/contact reads and staff broadcasts. Preserve explicit administrator and visitor access.
+- Count failed sign-ins per normalized login in the existing shared database, instead of counting successful office logins against one proxy IP. Concurrent Core processes share the same limit; success clears failures.
+- Preserve the native session cookie expiry during token rotation, including expired-token deletion.
+- Maintain marketing collector/consent scripts once and check generated WordPress copies during public-release validation.
+- Add regression coverage for admission outages, human takeover, membership revocation, concurrent logins and rotated cookies. No database migration or channel rebinding is required.
+- Windows physical acceptance and the eight-hour soak remain unexecuted for this version. Publish as a prerelease; live channel/CRM/advertising acceptance is not claimed.
+
 ## [0.2.0] - 2026-10-23
 
 First public AKE-Inbox source release, based on the full supplied Inbox snapshot.
@@ -14,3 +24,5 @@ First public AKE-Inbox source release, based on the full supplied Inbox snapshot
 Earlier v0.1 demonstration artifacts are historical reference material, not a previous release of this repository. See the provenance notice and versioning policy.
 
 [0.2.0]: https://github.com/akeparking/AKE-Inbox/releases/tag/v0.2.0
+
+[0.2.2]: https://github.com/akeparking/AKE-Inbox/releases/tag/v0.2.2

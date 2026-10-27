@@ -12,6 +12,7 @@ import {OkkiWriter,UncertainWrite,identityMatch,opportunityCompanyId} from './ok
 import {Chatwoot} from './chatwoot';
 import {InboxV2Controller} from './controller';
 import {zip,xlsx} from './export-format';
+import {UnauthorizedException,ServiceUnavailableException} from '@nestjs/common';
 const project={idempotencyKey:'test-opportunity',confirmed:true,name:'Fictional acceptance project',projectLocation:'Dubai Test Site',products:['ANPR camera'],estimatedAmount:0,currency:'USD',companyId:'10',contactIds:['20'],businessTypeId:'0',flowId:'30',stageId:'40',ownerId:'50'};
 describe('Inbox policy boundaries',()=>{
  it('allows basic intake questions without removing the uncovered product question gate',()=>{
@@ -48,8 +49,53 @@ describe.skipIf(!dbEnabled)('Persistent Inbox controls (isolated PostgreSQL)',()
  const actor:any={userId:7,accountId:1,role:'administrator',credentials:{}};
  beforeAll(async()=>{Object.assign(process.env,{INBOX_V2_ENABLED:'true',DATABASE_URL:process.env.INBOX_TEST_DATABASE_URL,FIELD_ENCRYPTION_KEY:'11'.repeat(32),INBOX_INTERNAL_KEY:'isolated-test-key',CHATWOOT_API_TOKEN:'isolated-token',INBOX_EFFECTIVE_FROM:'2026-01-01T00:00:00Z',INBOX_CHANNELS:'{"1":"email"}',INBOX_AUTO_SEND:'true',INBOX_AUTO_CHANNELS:'email',OKKI_WRITE_ENABLED:'true'});store=new InboxRepository();await store.db.query(await readFile(__dirname+'/../database/migrations/003_inbox_v2.sql','utf8'));await store.db.query(await readFile(__dirname+'/../database/migrations/007_office_reception.sql','utf8'));okki=new OkkiWriter(store);service=new InboxAutomation(store,cw,okki,{cleanup:async()=>{}} as any);});
  afterAll(async()=>{await store?.onModuleDestroy();vi.unstubAllGlobals();});
- beforeEach(async()=>{for(const t of ['events','jobs','links','writes','contacts','conversations','audit'])await store.db.query('DELETE FROM inbox_v2_'+t);vi.clearAllMocks();});
+ beforeEach(async()=>{for(const t of ['events','jobs','links','writes','contacts','conversations','audit','settings','sessions'])await store.db.query('DELETE FROM inbox_v2_'+t);vi.clearAllMocks();});
  const inbound=(id=1001,cid=101)=>({event:'message_created',id,message_type:'incoming',private:false,content:'Parking project with ANPR',account:{id:1},conversation:{id:cid,inbox_id:1},created_at:Date.now()/1000});
+ it('accepts nine concurrent successful sign-ins across Core instances without exhausting the pool',async()=>{
+   const second=new InboxRepository();
+   vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify({data:{id:7,accounts:[{id:1,role:'agent'}]}}),{status:200,headers:{'content-type':'application/json','access-token':'fictional-token','client':'fictional-client','uid':'fixture@example.invalid'}})));
+   try{
+     const controllers=[store,second].map(db=>new InboxV2Controller(db,new Chatwoot(db),{} as any,{} as any,{} as any));
+     const sessions=await Promise.all(Array.from({length:9},(_,i)=>controllers[i%2].login({email:`fixture-${i}@example.invalid`,password:'fictional-password'})));
+     expect(sessions).toHaveLength(9);
+     expect((await store.db.query('SELECT count(*)::int n FROM inbox_v2_sessions')).rows[0].n).toBe(9);
+     expect((await store.db.query("SELECT count(*)::int n FROM inbox_v2_settings WHERE key LIKE 'login:%'")).rows[0].n).toBe(0);
+   }finally{await second.onModuleDestroy();vi.unstubAllGlobals();}
+ });
+ it('shares failed-login limits across Core instances and normalizes the login identity',async()=>{
+   const second=new InboxRepository(),login=vi.fn(async()=>{throw new UnauthorizedException();});
+   try{
+     const controllers=[store,second].map(db=>new InboxV2Controller(db,{login} as any,{} as any,{} as any,{} as any));
+     const results=await Promise.allSettled(Array.from({length:12},(_,i)=>controllers[i%2].login({email:i%2?' FIXTURE@EXAMPLE.INVALID ':'fixture@example.invalid',password:'wrong-fixture'})));
+     expect(login).toHaveBeenCalledTimes(8);
+     expect(results.filter(r=>r.status==='rejected'&&r.reason.getStatus()===429)).toHaveLength(4);
+     expect((await store.db.query("SELECT value FROM inbox_v2_settings WHERE key LIKE 'login:%'")).rows[0].value.count).toBe(8);
+   }finally{await second.onModuleDestroy();}
+ });
+ it('clears failures after a successful login without blocking another operator',async()=>{
+   const login=vi.fn(async(_email:string,password:string)=>{if(password==='wrong')throw new UnauthorizedException();return {userId:7};});
+   const controller=new InboxV2Controller(store,{login} as any,{} as any,{} as any,{} as any);
+   for(let i=0;i<7;i++)await expect(controller.login({email:'fixture@example.invalid',password:'wrong'})).rejects.toThrow();
+   await expect(controller.login({email:'another@example.invalid',password:'right'})).resolves.toMatchObject({userId:7});
+   await expect(controller.login({email:'fixture@example.invalid',password:'right'})).resolves.toMatchObject({userId:7});
+   await expect(controller.login({email:'fixture@example.invalid',password:'wrong'})).rejects.toThrow();
+   expect((await store.db.query("SELECT value FROM inbox_v2_settings WHERE key LIKE 'login:%'")).rows[0].value.count).toBe(1);
+ });
+ it('does not turn an authentication dependency outage into a failed-password lockout',async()=>{
+   const login=vi.fn(async()=>{throw new ServiceUnavailableException();});
+   const controller=new InboxV2Controller(store,{login} as any,{} as any,{} as any,{} as any);
+   for(let i=0;i<9;i++)await expect(controller.login({email:'fixture@example.invalid',password:'right'})).rejects.toThrow(ServiceUnavailableException);
+   expect(login).toHaveBeenCalledTimes(9);
+   expect((await store.db.query("SELECT count(*)::int n FROM inbox_v2_settings WHERE key LIKE 'login:%'")).rows[0].n).toBe(0);
+ });
+ it('expires old failure counters so a previously limited operator can retry',async()=>{
+   const key='login:'+store.identity('fixture@example.invalid');
+   await store.db.query("INSERT INTO inbox_v2_settings(account_id,key,value) VALUES(1,$1,jsonb_build_object('count',8,'at',(EXTRACT(EPOCH FROM clock_timestamp())*1000-61000)::bigint))",[key]);
+   const login=vi.fn(async()=>({userId:7}));
+   const controller=new InboxV2Controller(store,{login} as any,{} as any,{} as any,{} as any);
+   await expect(controller.login({email:'fixture@example.invalid',password:'right'})).resolves.toMatchObject({userId:7});
+   expect(login).toHaveBeenCalledOnce();
+ });
  it('serves only requested CRM links through authenticated internal reads without writing OKKI',async()=>{
    await service.ingest(inbound());const c=(await store.conversation(101))!;
    await store.db.query('INSERT INTO inbox_v2_links(account_id,group_key,company_id,snapshot) VALUES(1,$1,$2,$3)',[c.group_key,'55',store.pack({company:{name:'Fictional Company',trail_status:{status_name:'Following'},owner:[{nickname:'Fixture owner'}],private_field:'DO_NOT_EXPOSE'},opportunities:[]})]);

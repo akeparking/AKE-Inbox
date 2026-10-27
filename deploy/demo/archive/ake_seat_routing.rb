@@ -21,7 +21,11 @@ module AkeSeatRouting
   def self.conversations(scope, user, account)
     return scope unless restricted?(user, account)
 
-    scope.where(assignee_id: user.id)
+    with_current_membership(scope.where(assignee_id: user.id))
+  end
+
+  def self.with_current_membership(scope)
+    scope.where('EXISTS (SELECT 1 FROM inbox_members WHERE inbox_members.inbox_id = conversations.inbox_id AND inbox_members.user_id = conversations.assignee_id)')
   end
 
   def self.contact_ids(user, account)
@@ -45,7 +49,7 @@ module AkeSeatRouting
     def show?
       return super unless AkeSeatRouting.restricted?(user, account)
 
-      record.account_id == account.id && record.assignee_id == user.id
+      record.account_id == account.id && AkeSeatRouting.conversations(account.conversations, user, account).exists?(id: record.id)
     end
   end
 
@@ -233,16 +237,16 @@ module AkeSeatRouting
             elsif event_name.start_with?('notification.')
               payload.dig(:notification, :primary_actor, :id)
             end
-      conversation = account.conversations.find_by(display_id: cid) if cid
       if cid
-        allowed_users = account.administrators.pluck(:id) + [conversation&.assignee_id]
+        owners = AkeSeatRouting.with_current_membership(account.conversations.where(display_id: cid)).pluck(:assignee_id)
+        allowed_users = account.administrators.pluck(:id) + owners
         all_user_tokens = account.users.pluck(:pubsub_token)
         permitted_tokens = account.users.where(id: allowed_users.compact).pluck(:pubsub_token)
         # Contact tokens remain unchanged; only staff receive staff-scoped events.
         members = (members - all_user_tokens - ["account_#{account.id}"]) + (members & permitted_tokens)
       elsif event_name.start_with?('contact.')
         contact_id = payload[:id]
-        owners = account.conversations.where(contact_id: contact_id).pluck(:assignee_id)
+        owners = AkeSeatRouting.with_current_membership(account.conversations.where(contact_id: contact_id)).pluck(:assignee_id)
         members = account.users.where(id: account.administrators.pluck(:id) + owners.compact).pluck(:pubsub_token)
       end
       super(members.uniq, event_name, data)

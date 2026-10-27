@@ -1,6 +1,6 @@
 {
   "name": "ake-inbox",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "workspaces": [
     "apps/*",
@@ -10,7 +10,8 @@
     "node": ">=24"
   },
   "scripts": {
-    "build": "npm run build -w @ake/contracts && npm run build -w @ake/revenue-core && npm run build -w @ake/workspace-web",
+    "build": "npm run sync:marketing-assets && npm run build -w @ake/contracts && npm run build -w @ake/revenue-core && npm run build -w @ake/workspace-web",
+    "sync:marketing-assets": "node scripts/sync-marketing-assets.mjs",
     "dev": "npm run dev -w @ake/workspace-web",
     "dev:api": "npm run dev -w @ake/revenue-core",
     "dev:worker": "npm run dev:worker -w @ake/revenue-core",
@@ -19,7 +20,7 @@
     "test:requirements": "node --test apps/requirement-engine/*.test.mjs",
     "smoke:requirements": "node scripts/smoke-requirement-integration.mjs",
     "verify:isolation": "node scripts/verify-compose-isolation.mjs",
-    "check:public": "node scripts/public-release-check.mjs",
+    "check:public": "node scripts/sync-marketing-assets.mjs --check && node scripts/public-release-check.mjs",
     "typecheck": "npm run build -w @ake/contracts && npm run typecheck -w @ake/revenue-core && npm run typecheck -w @ake/workspace-web",
     "test:channels": "node --test test/inbox-channels/whatsapp.test.mjs test/marketing/waha-guard.test.cjs",
     "test:google-guards": "python3 supplemental/google-offline/test-job.py"

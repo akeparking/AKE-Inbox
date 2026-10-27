@@ -73,3 +73,6 @@ LOCAL_RUNTIME_ROOT="$NEW_PRIVATE_RUNTIME" bash deploy/marketing/local.sh status
 `NEW_PRIVATE_RUNTIME` 必须是 `/home` 下尚不存在的目录；`LOCAL_NODE_IMAGE` 必须是已安装的 Node 24+ 镜像。脚本固定 Chatwoot 摘要，记录本地 Node/PostgreSQL/Redis 镜像 ID，并检查端口与已有卷，拒绝覆盖现有运行目录。它创建全新密钥、管理员、API Inbox、表单和站点；凭据只写到私有 `accounts.json`。新环境不安装 WordPress 内容、不启动 WhatsApp、不导入既有客户或 provider session。安装后的 stop/start 保留卷，使用原 `local.sh`；不要删除数据卷。已有运行环境默认端口和 profiles 保持原配置。
 
 复现新增验证：`test/marketing/reliability-browser.py`、`wordpress-outbox-test.php`、`wordpress-outbox-browser.py`、`bootstrap-browser.py`、`queue-recovery.mjs`。后两者只接受独立重建环境；队列恢复使用该环境单独的 Redis DB 14，不能指向工作环境或生产。新机器依赖下载、WordPress 内容迁移、异机灾备、真实身份/消息平台限制及 Google 权限仍不是本地测试的替代证明。
+## Script maintenance
+
+Edit `deploy/marketing/collector.js` and `deploy/marketing/consent.js` only, then run `npm run sync:marketing-assets` from the repository root. The WordPress copies are generated installation assets. The normal build synchronizes them; `npm run check:public` rejects drift before release.

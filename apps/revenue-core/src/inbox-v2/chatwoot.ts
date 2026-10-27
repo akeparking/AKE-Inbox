@@ -1,4 +1,5 @@
-import { Injectable, UnauthorizedException, ForbiddenException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
+import type { Pool, PoolClient } from 'pg';
 import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
 import { InboxRepository } from './repository';
 import { config, type Actor } from './contracts';
@@ -28,9 +29,10 @@ export class Chatwoot {
     if(!['human','ai'].includes(result.mode)||!Number.isInteger(result.onlineCount)||result.onlineCount<0)throw new Error('invalid_reception_route');
     return result;
   }
-  async login(email: string, password: string) {
+  async login(email: string, password: string, client: Pool | PoolClient = this.store.db) {
     if (email.length>254 || password.length>1024) throw new UnauthorizedException();
     const r = await fetch(config().chatwootUrl+'/auth/sign_in', {method:'POST',signal:AbortSignal.timeout(15000),redirect:'error', headers:{'content-type':'application/json'},body:JSON.stringify({email,password})});
+    if (r.status >= 500 || r.status === 429) throw new ServiceUnavailableException('Inbox sign-in is temporarily unavailable');
     if (!r.ok) throw new UnauthorizedException('Inbox sign-in failed');
     const credentials: Record<string,string> = {};
     for (const k of ['access-token','client','uid','token-type']) { const v=r.headers.get(k); if (v) credentials[k]=v; }
@@ -39,8 +41,8 @@ export class Chatwoot {
     if (!membership || !credentials['access-token']) throw new ForbiddenException('Account access required');
     const token=randomBytes(32).toString('hex');
     const actor={ userId:data.id, role:membership.role, accountId:config().accountId, credentials };
-    await this.store.db.query('INSERT INTO inbox_v2_sessions VALUES($1,$2,$3,$4,$5,now()+interval \'8 hours\')', [createHash('sha256').update(token).digest('hex'),actor.accountId,actor.userId,actor.role,this.store.pack(credentials)]);
-    await this.store.audit(String(actor.userId),'session.created','session');
+    await client.query('INSERT INTO inbox_v2_sessions VALUES($1,$2,$3,$4,$5,now()+interval \'8 hours\')', [createHash('sha256').update(token).digest('hex'),actor.accountId,actor.userId,actor.role,this.store.pack(credentials)]);
+    await this.store.audit(String(actor.userId),'session.created','session',{},client);
     return { token, userId:actor.userId, role:actor.role, accountId:actor.accountId };
   }
   async actor(token: string): Promise<Actor> {

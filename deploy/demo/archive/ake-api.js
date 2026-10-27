@@ -11,7 +11,9 @@
     });
     if(response.headers.get('access-token')) {
       for(const key of ['access-token','client','uid','token-type','expiry']) if(response.headers.get(key)) auth[key]=response.headers.get(key);
-      document.cookie=`cw_d_session_info=${encodeURIComponent(JSON.stringify(auth))}; Path=/; ${location.protocol==='https:'?'Secure; ':''}SameSite=Lax`;
+      const expiry=Number(auth.expiry),expires=new Date(expiry*1000);
+      const persistence=Number.isFinite(expiry)&&expiry>0&&Number.isFinite(expires.getTime())?`; Expires=${expires.toUTCString()}`:'';
+      document.cookie=`cw_d_session_info=${encodeURIComponent(JSON.stringify(auth))}; Path=/; ${location.protocol==='https:'?'Secure; ':''}SameSite=Lax${persistence}`;
     }
     const data=await response.json().catch(()=>({}));
     if(!response.ok) throw new Error(response.status===401?'登录已过期，请重新登录 Inbox。':data.error||'操作未完成，请稍后重试。');

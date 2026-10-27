@@ -40,14 +40,37 @@ Account.transaction do
   data = JSON.parse(session.response.body)
   check(session.response.successful? && data['unreadCount'] == 1 && data['conversations'].map { |r| r['conversationId'] } == [conversations[0].display_id], "agent unread requires both ownership and current inbox membership (status #{session.response.status}, count #{data['unreadCount']})")
   check(!session.response.body.include?('PRIVATE_FIXTURE_BODY') && data['conversations'][0].keys.sort == %w[conversationId lastMessageId unreadCount].sort, 'desktop summary exposes no customer content')
+  owned = conversations[0]
+  detail = "/api/v1/accounts/1/conversations/#{owned.display_id}"
+  session.get(detail, headers: auth)
+  check(session.response.successful?, 'current inbox member can open the assigned conversation')
+  session.get(detail + '/messages', headers: auth)
+  check(session.response.successful? && session.response.body.include?('PRIVATE_FIXTURE_BODY'), 'current member can read the assigned messages')
   membership.destroy!
   session.get(path, headers: auth)
   check(JSON.parse(session.response.body)['unreadCount'].zero?, 'revoking membership immediately removes desktop unread')
+  check(owned.reload.assignee_id == agent.id, 'revocation fixture deliberately retains stale ownership')
+  [detail, detail + '/messages', "/api/v1/accounts/1/contacts/#{owned.contact_id}/notes"].each do |endpoint|
+    session.get(endpoint, headers: auth)
+    check([401, 403, 404].include?(session.response.status) && !session.response.body.include?('PRIVATE_FIXTURE_BODY'), 'revoked member cannot read conversation, messages or contact children')
+  end
+  check(AkeSeatRouting.conversations(account.conversations, agent, account).empty?, 'revoked ownership is excluded from list and search scope')
+  check(AkeSeatRouting.contact_ids(agent, account).empty?, 'revoked ownership is excluded from customer and export authorization scope')
+  destinations = []
+  broadcast = ActionCableBroadcastJob.new
+  broadcast.define_singleton_method(:broadcast_to_members) { |members, *_args| destinations.replace(members) }
+  broadcast.perform([agent.pubsub_token, owned.contact_inbox.pubsub_token], 'conversation.created', owned.push_event_data.merge(account_id: account.id))
+  check(!destinations.include?(agent.pubsub_token) && destinations.include?(owned.contact_inbox.pubsub_token), 'revocation removes staff broadcast access while preserving the visitor')
+  destinations.clear
+  broadcast.perform([agent.pubsub_token], 'contact.updated', owned.contact.push_event_data.merge(account_id: account.id))
+  check(destinations.empty?, 'revoked assignee receives no contact broadcast')
   member.update!(role: :administrator)
   conversations[1].update!(assignee: nil)
   session.get(path, headers: auth)
   data = JSON.parse(session.response.body)
   check(data['unreadCount'] == 1 && data['conversations'].map { |r| r['conversationId'] } == [conversations[0].display_id], 'administrator summary still excludes work not assigned to that administrator')
+  session.get(detail, headers: auth)
+  check(session.response.successful?, 'explicit administrator access remains available without inbox membership')
   session.get(path)
   check([401, 403].include?(session.response.status), 'desktop endpoint requires authentication')
   raise ActiveRecord::Rollback

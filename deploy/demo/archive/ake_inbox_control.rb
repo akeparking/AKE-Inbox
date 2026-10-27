@@ -3,6 +3,7 @@
 require 'net/http'
 require 'json'
 module AkeInboxControl
+  class Denied < StandardError; end
   class Unavailable < StandardError
     attr_reader :status
     def initialize(message, status=503)
@@ -33,9 +34,19 @@ module AkeInboxControl
   def self.allowed?(conversation, attributes={})
     return true unless enabled?(conversation)
     return false if conversation.contact.blocked?
-    call('admission',{accountId:conversation.account_id,conversationId:conversation.display_id,jobId:attributes['ake_inbox_job']||attributes[:ake_inbox_job],revision:attributes['ake_inbox_revision']||attributes[:ake_inbox_revision]})['allowed']==true
+    result = call('admission',{accountId:conversation.account_id,conversationId:conversation.display_id,jobId:attributes['ake_inbox_job']||attributes[:ake_inbox_job],revision:attributes['ake_inbox_revision']||attributes[:ake_inbox_revision]})
+    raise Unavailable, 'Inbox control unavailable' unless result.is_a?(Hash) && [true, false].include?(result['allowed'])
+
+    result['allowed']
+  rescue Unavailable
+    raise
   rescue StandardError
-    false
+    # Before a provider is called, an outage must reach the durable job retry
+    # mechanism. A policy denial is the only successful false result.
+    raise Unavailable, 'Inbox control unavailable'
+  end
+  def self.prevent_delivery(message)
+    Messages::StatusUpdateService.new(message, 'failed', 'Sending prevented by current Inbox reception policy').perform
   end
   module Builder
     def perform
@@ -53,7 +64,7 @@ module AkeInboxControl
   module SendJob
     def perform(message_id)
       message=Message.find(message_id)
-      return unless AkeInboxControl.allowed?(message.conversation,message.content_attributes||{})
+      return AkeInboxControl.prevent_delivery(message) unless AkeInboxControl.allowed?(message.conversation,message.content_attributes||{})
       super
     end
   end
@@ -97,7 +108,9 @@ module AkeInboxControl
       message=Message.find_by(id:id)
       unless message && AkeInboxControl.allowed?(message.conversation,message.content_attributes||{})
         mail.perform_deliveries=false
-        return
+        # A normal return lets the native email service record a source_id for
+        # mail that was never sent. Its error handler instead exposes failure.
+        raise Denied, 'Sending prevented by current Inbox reception policy'
       end
       AkeArchive.capture_raw_email(message.inbox.channel,Mail.read_from_string(mail.encoded))
     end

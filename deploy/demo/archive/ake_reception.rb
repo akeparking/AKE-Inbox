@@ -139,7 +139,7 @@ module AkeReception
       message = Message.find(message_id)
       return super unless AkeReception.enabled?(message.account_id) && message.content_attributes['ake_inbox_job'].present?
       AkeReception.lock(message.account_id) do
-        return if AkeReception.online_ids(message.inbox).any?
+        return AkeInboxControl.prevent_delivery(message) if AkeReception.online_ids(message.inbox).any?
         super
       end
     end

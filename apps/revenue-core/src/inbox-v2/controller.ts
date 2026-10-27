@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Req, Res, UnauthorizedException, ForbiddenException, ServiceUnavailableException, ConflictException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Req, Res, UnauthorizedException, ForbiddenException, ServiceUnavailableException, ConflictException, HttpException } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -13,19 +13,40 @@ import { config, opportunitySchema, knowledgeSchema, fieldsSchema, createCustome
 
 @Controller('api/v1/inbox-v2')
 export class InboxV2Controller {
-  private attempts=new Map<string,{count:number;at:number}>();
   constructor(private readonly store:InboxRepository,private readonly cw:Chatwoot,private readonly automation:InboxAutomation,private readonly exports:InboxExports,private readonly marketing:MarketingService){}
   private ready(){if(!config().enabled)throw new ServiceUnavailableException('Inbox v0.2 is disabled');}
   private actor(req:Request){this.ready();return this.cw.actor(String(req.headers['x-inbox-session']||''));}
   private internal(req:Request){this.ready();if(!secretEquals(String(req.headers['x-inbox-key']||''),config().internalKey))throw new UnauthorizedException();}
   private admin(actor:Actor){if(actor.role!=='administrator')throw new ForbiddenException('Administrator access required');}
   @Post('session')
-  async login(@Body() b:any,@Req() req:Request){
-    this.ready();const key=req.ip||'unknown',old=this.attempts.get(key);
-    if(old&&Date.now()-old.at<60000&&old.count>=8)throw new UnauthorizedException('Too many sign-in attempts');
-    this.attempts.set(key,{count:old&&Date.now()-old.at<60000?old.count+1:1,at:Date.now()});
-    for(const [ip,v]of this.attempts)if(Date.now()-v.at>60000)this.attempts.delete(ip);
-    return this.cw.login(String(b.email||''),String(b.password||''));
+  async login(@Body() b:any){
+    this.ready();
+    const email=String(b.email||'').trim().toLowerCase(),password=String(b.password||'');
+    if(!email||email.length>254||password.length>1024)throw new UnauthorizedException();
+    const accountId=config().accountId,key='login:'+this.store.identity(email);
+    // Shared across Core processes, without trusting client-supplied proxy headers.
+    // Clean expired entries before taking the per-login lock.
+    await this.store.db.query("DELETE FROM inbox_v2_settings WHERE account_id=$1 AND key LIKE 'login:%' AND (value->>'at')::bigint < EXTRACT(EPOCH FROM clock_timestamp())*1000-60000",[accountId]);
+    const result=await this.store.transaction(key,async client=>{
+      const now=Math.floor(Number((await client.query('SELECT EXTRACT(EPOCH FROM clock_timestamp())*1000 AS now')).rows[0].now));
+      const previous=(await client.query('SELECT value FROM inbox_v2_settings WHERE account_id=$1 AND key=$2',[accountId,key])).rows[0]?.value;
+      const old=previous&&now-previous.at<60000?previous:{count:0,at:now};
+      if(old.count>=8)return {error:new HttpException('Too many sign-in attempts',429)};
+      try{
+        // Use this connection for session/audit writes; a second pool checkout
+        // while every login holds a connection would deadlock concurrent sign-ins.
+        const session=await this.cw.login(email,password,client);
+        await client.query('DELETE FROM inbox_v2_settings WHERE account_id=$1 AND key=$2',[accountId,key]);
+        return {session};
+      }catch(error){
+        if(!(error instanceof UnauthorizedException||error instanceof ForbiddenException))throw error;
+        await client.query('INSERT INTO inbox_v2_settings(account_id,key,value) VALUES($1,$2,$3) ON CONFLICT(account_id,key) DO UPDATE SET value=excluded.value',[accountId,key,{count:old.count+1,at:old.at}]);
+        // Commit failed-attempt state before returning the authentication error.
+        return {error};
+      }
+    });
+    if('error' in result)throw result.error;
+    return result.session;
   }
   @Get('session') async me(@Req() req:Request){const a=await this.actor(req);return {userId:a.userId,role:a.role,accountId:a.accountId};}
   @Post('logout') async logout(@Req() req:Request){

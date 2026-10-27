@@ -9,7 +9,7 @@ Self-hosted B2B inquiry operations: connect conversations, reviewed customer req
 
 [版本与源码下载](https://github.com/akeparking/AKE-Inbox/releases) · [架构](docs/ARCHITECTURE.md) · [功能边界](docs/FEATURE_STATUS.md) · [路线图与竞品](docs/ROADMAP.md) · [贡献](CONTRIBUTING.md) · [安全](SECURITY.md)
 
-> **当前为 v0.2.0 开源预览版。** 这是本仓库的首个公开版本，沿用原项目的版本号。可直接运行无密钥的本地 Mock 演示；完整 Inbox 部署需要自行配置 Chatwoot、数据库和所选渠道。连接器代码存在不代表你的账号已接通，测试通过也不代表已完成生产验收。
+> **当前为 v0.2.2 审查修复预发布版。** 修复发送故障恢复、撤权隔离、多人登录限流和 token 轮换；Windows 实机与 8 小时观察尚未完成，详见[本版说明](docs/desktop/release-notes.md)。可直接运行无密钥的本地 Mock 演示；完整 Inbox 部署需要自行配置 Chatwoot、数据库和所选渠道。连接器代码存在不代表你的账号已接通，测试通过也不代表已完成生产验收。
 
 ## 解决什么问题
 

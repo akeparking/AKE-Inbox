@@ -30,6 +30,7 @@ jobs:
       - run: gem install --no-document minitest:5.26.2 activesupport:7.2.3.1
       - run: ruby test/inbox-channels/archive_test.rb
       - run: ruby test/inbox-channels/mail-loop-guard-test.rb
+      - run: ruby test/inbox-channels/inbox-control-test.rb
       - run: python3 test/office/model-adapter-test.py
   verify:
     runs-on: ubuntu-latest
