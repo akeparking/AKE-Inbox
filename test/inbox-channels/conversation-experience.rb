@@ -39,20 +39,23 @@ conversation = fixture_conversation(account, inbox, "visitor-#{SecureRandom.hex(
 incoming = conversation.messages.create!(account: account, inbox: inbox, sender: conversation.contact, message_type: :incoming, content: 'I need a parking guidance quote.', created_at: 3.minutes.ago)
 human = conversation.messages.create!(account: account, inbox: inbox, sender: agent, message_type: :outgoing, content: 'Thanks. I will help with your project.', created_at: 2.minutes.ago)
 ai = conversation.messages.create!(account: account, inbox: inbox, sender: bot, message_type: :outgoing, content: 'Which country is the project in?', created_at: 1.minute.ago)
+api_ai = conversation.messages.create!(account: account, inbox: inbox, sender: agent, message_type: :outgoing, content: 'Which project details are available?', created_at: 30.seconds.ago)
+api_ai.update_columns(content_attributes: { 'ake_inbox_job' => 'fixture-ai-job' })
 note = conversation.messages.create!(account: account, inbox: inbox, sender: agent, message_type: :outgoing, private: true, content: 'PRIVATE_FIXTURE_DO_NOT_EXPOSE')
 stranger = fixture_conversation(account, inbox, "stranger-#{SecureRandom.hex(4)}@example.invalid")
 stranger_message = stranger.messages.create!(account: account, inbox: inbox, sender: stranger.contact, message_type: :incoming, content: 'OTHER_VISITOR_DO_NOT_EXPOSE')
 auth_token = Widget::TokenService.new(payload: {source_id: conversation.contact_inbox.source_id, inbox_id: inbox.id}).generate_token
 conversation.update_columns(agent_last_seen_at: Time.current)
 session = ActionDispatch::Integration::Session.new(Rails.application)
-query = {website_token: web.website_token, ids: [incoming, human, ai, note, stranger_message].map(&:id).join(',')}
+query = {website_token: web.website_token, ids: [incoming, human, ai, api_ai, note, stranger_message].map(&:id).join(',')}
 session.get('/api/v1/widget/ake_conversation_state', params: query, headers: {'X-Auth-Token' => auth_token})
 data = JSON.parse(session.response.body)
-check(session.response.status == 200 && data['messages'].size == 3, 'visitor metadata excludes private notes and other visitors')
+check(session.response.status == 200 && data['messages'].size == 4, 'visitor metadata excludes private notes and other visitors')
 check(data['messages'].find { |m| m['id'] == incoming.id }['receipt'] == 'delivered', 'persisted visitor message starts Delivered before human viewing')
 check(AkeConversationExperience.read_at(conversation).zero?, 'an automatic/native seen timestamp alone cannot impersonate human reading')
 check(data['messages'].find { |m| m['id'] == human.id }['sender_name'] == 'Fixture Agent', 'human message uses the actual agent display name')
 check(data['messages'].find { |m| m['id'] == ai.id }.values_at('sender_name', 'sender_kind') == ['AI Agent', 'ai'], 'AI reply has its own visible identity')
+check(data['messages'].find { |m| m['id'] == api_ai.id }.values_at('sender_name', 'sender_kind') == ['AI Agent', 'ai'], 'company API replies are identified as AI even when delivered by a service user')
 check(data['messages'].all? { |m| Time.iso8601(m['created_at']).present? }, 'every visible message has a server timestamp')
 check(data['has_conversation'] && data['has_email'] && data['email_continuity'], 'existing offline conversation remains resumable with email continuity')
 session.get('/api/v1/widget/ake_conversation_state', params: query)
@@ -116,6 +119,7 @@ check(session.response.body.include?('/ake/assets/ake-conversation-widget.js'), 
 session.get('/ake/assets/ake-conversation-widget.js')
 check(session.response.successful? && session.response.body.include?('Viewed by a member'), 'public enhancement asset is served')
 
+FileUtils.mkdir_p('/tmp/ake-fixtures', mode: 0o700)
 File.write('/tmp/ake-fixtures/experience-fixture.json', JSON.generate({email: agent.email, password: password, website_token: web.website_token,
   auth_token: auth_token, conversation_id: conversation.display_id, incoming_id: incoming.id, human_id: human.id, ai_id: ai.id}))
 File.chmod(0o600, '/tmp/ake-fixtures/experience-fixture.json')

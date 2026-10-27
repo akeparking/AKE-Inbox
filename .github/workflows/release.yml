@@ -1,16 +1,20 @@
-name: Publish an existing version tag
+name: Build a new Windows release draft
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing version tag, for example v0.2.1. Existing releases are never overwritten.
+        description: Existing stable version tag. Existing releases and assets are never overwritten.
         required: true
         type: string
 permissions:
   contents: write
+concurrency:
+  group: release-${{ inputs.tag }}
+  cancel-in-progress: false
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       RELEASE_TAG: ${{ inputs.tag }}
       GH_TOKEN: ${{ github.token }}
@@ -19,14 +23,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Validate tag and preserve existing releases
+      - name: Validate exact tag and preserve old releases
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           git rev-parse --verify "refs/tags/$RELEASE_TAG^{commit}"
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            echo 'Existing releases are immutable by policy; publish a new version.'
+            echo 'Existing releases are immutable. Choose a new version.'
             exit 1
           fi
           git checkout --detach "refs/tags/$RELEASE_TAG"
@@ -34,29 +38,41 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-      - name: Verify source before packaging
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
+      - name: Verify exact source
         run: |
-          npm ci
+          npm ci --no-fund
           npm run build -w @ake/contracts
           npm test
           npm run test:channels
           npm run test:google-guards
+          python3 test/office/model-adapter-test.py
           npm run typecheck
           npm run build
           npm run check:public
           npm audit --audit-level=high
+          npm ci --prefix desktop --no-fund
+          npm test --prefix desktop
+          npm audit --prefix desktop --audit-level=high
           curl -fsSL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz -o /tmp/gitleaks.tar.gz
           echo '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  /tmp/gitleaks.tar.gz' | sha256sum -c -
           tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
           /tmp/gitleaks git . --redact=100 --no-banner --log-opts=--all
-      - name: Archive exact tag and publish new assets
+      - name: Build Windows x64 ZIP, source, offline guide and checksums
+        env:
+          AKE_PACKAGE_OUTPUT: ${{ runner.temp }}/ake-windows
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/ake-release
-          git archive --format=zip --prefix="AKE-Inbox-$RELEASE_TAG/" -o "/tmp/ake-release/AKE-Inbox-$RELEASE_TAG-source.zip" "refs/tags/$RELEASE_TAG"
-          git archive --format=tar.gz --prefix="AKE-Inbox-$RELEASE_TAG/" -o "/tmp/ake-release/AKE-Inbox-$RELEASE_TAG-source.tar.gz" "refs/tags/$RELEASE_TAG"
-          cd /tmp/ake-release
-          sha256sum *.zip *.tar.gz > SHA256SUMS.txt
-          gh release create "$RELEASE_TAG" --verify-tag --title "AKE-Inbox $RELEASE_TAG" --generate-notes --draft ./*
-          echo 'Draft created. Review the PostgreSQL CI result and release notes before publishing.'
+          npm run package:win --prefix desktop
+          node scripts/build-desktop-release.mjs "$RELEASE_TAG" "$AKE_PACKAGE_OUTPUT/AKE-Inbox-win32-x64" "$RUNNER_TEMP/ake-release" "docs/desktop/$RELEASE_TAG-validation.json"
+          cd "$RUNNER_TEMP/ake-release"
+          sha256sum -c SHA256SUMS.txt
+      - name: Create draft without changing old releases
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "$RELEASE_TAG" --verify-tag --title "AKE Inbox $RELEASE_TAG · Windows 工作台" --notes-file docs/desktop/release-notes.md --draft "$RUNNER_TEMP/ake-release/"*
+          echo 'Draft only. Publish after the exact package passes Windows acceptance and the eight-hour soak.'

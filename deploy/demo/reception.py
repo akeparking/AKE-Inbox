@@ -49,18 +49,37 @@ def generate(context):
         if parsed.scheme not in ('https','http') or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:raise ValueError('model_url_invalid')
         if parsed.scheme=='http' and not model.get('allow_local_http',False):raise ValueError('model_https_required')
         if not model.get('api_key') or not model.get('model'):raise ValueError('model_config_required')
-        payload={'model':model['model'],'max_tokens':2500,'stream':False,'response_format':{'type':'json_object'},'messages':[
-            {'role':'system','content':PROMPT+'\nRequired JSON schema: '+json.dumps(SCHEMA)},
-            {'role':'user','content':json.dumps(context,ensure_ascii=False)}]}
-        request=urllib.request.Request(base+'/chat/completions',data=json.dumps(payload).encode(),headers={'Content-Type':'application/json','Authorization':'Bearer '+model['api_key']})
+        protocol=model.get('protocol','openai')
+        if protocol not in ('openai','anthropic'):raise ValueError('model_protocol_invalid')
+        system=PROMPT+'\nRequired JSON schema: '+json.dumps(SCHEMA)
+        payload={'model':model['model'],'max_tokens':2500,'stream':False,'messages':[{'role':'user','content':json.dumps(context,ensure_ascii=False)}]}
+        headers={'Content-Type':'application/json'}
+        if protocol=='anthropic':
+            payload['system']=system
+            # Opt in only for gateways/models verified to support this setting.
+            if model.get('disable_thinking') is True:payload['thinking']={'type':'disabled'}
+            headers.update({'x-api-key':model['api_key'],'anthropic-version':'2023-06-01'})
+            endpoint='/messages'
+        else:
+            payload['response_format']={'type':'json_object'}
+            payload['messages'].insert(0,{'role':'system','content':system})
+            headers['Authorization']='Bearer '+model['api_key'];endpoint='/chat/completions'
+        request=urllib.request.Request(base+endpoint,data=json.dumps(payload).encode(),headers=headers)
         with API_HTTP.open(request,timeout=65) as r:
             raw=r.read(1048577)
         if len(raw)>1048576:raise ValueError('model_response_too_large')
-        response=json.loads(raw);choice=response['choices'][0];message=choice['message']
+        response=json.loads(raw)
         returned=str(response.get('model',''))
         if re.fullmatch(r'[A-Za-z0-9_./:+-]{1,128}',returned):STATUS['returnedModel']=returned
-        if message.get('tool_calls') or message.get('function_call') or choice.get('finish_reason')!='stop':raise ValueError('model_response_incomplete')
-        value=json.loads(message['content']);validate(value,SCHEMA)
+        if protocol=='anthropic':
+            blocks=response.get('content',[])
+            if response.get('stop_reason')!='end_turn' or any(b.get('type') not in ('text','thinking','redacted_thinking') for b in blocks):raise ValueError('model_response_incomplete')
+            content=''.join(b.get('text','') for b in blocks if b.get('type')=='text')
+        else:
+            choice=response['choices'][0];message=choice['message']
+            if message.get('tool_calls') or message.get('function_call') or choice.get('finish_reason')!='stop':raise ValueError('model_response_incomplete')
+            content=message['content']
+        value=json.loads(content);validate(value,SCHEMA)
         if not value['reply'].strip() or len(value['reply'])>2000 or len(re.findall('[?？]',value['reply']))>2:raise ValueError('model_response_invalid')
         if re.search(r'-----BEGIN|Bearer\s+|sk-[A-Za-z0-9]{12}|access_token|refresh_token|api_access_token',value['reply'],re.I):raise ValueError('model_output_rejected')
         STATUS['model']='verified_response';return {**value,'mode':'api'}
@@ -75,7 +94,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         data=json.dumps(body).encode();self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
     def do_GET(self):
         if self.path!='/health':return self.send(404,{'error':'not_found'})
-        self.send(200,{'ok':True,'version':'0.2.0','role':'signed_ingress_and_model_only','apiConfigured':bool(CONFIG.get('model_api',{}).get('api_key')),'busy':MODEL_LOCK.locked(),**STATUS})
+        self.send(200,{'ok':True,'version':'0.2.1','role':'signed_ingress_and_model_only','apiConfigured':bool(CONFIG.get('model_api',{}).get('api_key')),'busy':MODEL_LOCK.locked(),**STATUS})
     def do_POST(self):
         try:
             size=int(self.headers.get('Content-Length','-1'))

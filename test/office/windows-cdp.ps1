@@ -1,9 +1,9 @@
 # UI transport only. The acceptance tests and assertions run in WSL.
-param([int]$Port = 14739)
+param([int]$Port = 14739, [switch]$NodeInspector)
 $ErrorActionPreference = 'Stop'
 [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
-$version = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/json/version" -TimeoutSec 10
+$version = if ($NodeInspector) { (Invoke-RestMethod -Uri "http://127.0.0.1:$Port/json/list" -TimeoutSec 10)[0] } else { Invoke-RestMethod -Uri "http://127.0.0.1:$Port/json/version" -TimeoutSec 10 }
 $socket = New-Object System.Net.WebSockets.ClientWebSocket
 [void]$socket.ConnectAsync([Uri]$version.webSocketDebuggerUrl, [Threading.CancellationToken]::None).GetAwaiter().GetResult()
 [Console]::WriteLine('{"ready":true,"transport":"Windows loopback CDP"}')

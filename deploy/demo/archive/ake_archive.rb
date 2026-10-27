@@ -169,4 +169,7 @@ Rails.application.config.to_prepare do
   Imap::BaseFetchEmailService.prepend(AkeArchive::RawImap) unless Imap::BaseFetchEmailService < AkeArchive::RawImap
 end
 
-require '/opt/ake-archive/ake_archive_dedup'
+# In deployment this file is also mounted as a Rails initializer; its sibling
+# patches remain under /opt. Source-only regression tests load them beside it.
+dedup_patch = File.join(__dir__, 'ake_archive_dedup.rb')
+require(File.file?(dedup_patch) ? dedup_patch : '/opt/ake-archive/ake_archive_dedup')

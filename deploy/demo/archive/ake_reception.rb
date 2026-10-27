@@ -20,8 +20,34 @@ module AkeReception
     inbox.account.account_users.where(user_id: inbox.member_ids).includes(:user).select do |member|
       eligible_role = member.agent? || (member.administrator? && settings['ake_admin_owned'] == true && settings['ake_owner_id'].to_i == member.user_id)
       eligible_role && member.user.confirmed? && member.availability == 'online' &&
-        Redis::Alfred.get("ake-reception:#{inbox.account_id}:#{member.user_id}").to_f > Time.now.to_f
+        leased?(inbox.account_id, member.user_id)
     end.map(&:user_id).sort
+  end
+
+  def self.instance_key(account_id, user_id)
+    "ake-reception-instances:#{account_id}:#{user_id}"
+  end
+
+  def self.leased?(account_id, user_id)
+    now = Time.now.to_f
+    Redis::Alfred.get("ake-reception:#{account_id}:#{user_id}").to_f > now ||
+      Redis::Alfred.zcount(instance_key(account_id, user_id), "(#{now}", '+inf').positive?
+  end
+
+  # The account lock also fences assignment and AI delivery. Releasing a desktop
+  # instance must never change another instance's or an older web client's lease.
+  def self.renew_instance(account_id, user_id, client_id, online)
+    key = instance_key(account_id, user_id)
+    now = Time.now.to_f
+    Redis::Alfred.with do |redis|
+      redis.zremrangebyscore(key, '-inf', now)
+      if online
+        redis.zadd(key, [[now + LEASE.to_f, client_id]])
+        redis.expire(key, LEASE.to_i)
+      else
+        redis.zrem(key, client_id)
+      end
+    end
   end
 
   def self.route(conversation)
@@ -126,16 +152,47 @@ class Api::V1::Accounts::AkeReceptionController < Api::V1::Accounts::BaseControl
     return head :forbidden unless (Current.account_user.agent? || Current.account_user.administrator?) && Current.user.confirmed?
     state = params[:state]
     return head :unprocessable_entity unless state.nil? || %w[online offline].include?(state)
+    client_id = params[:clientId]
+    return head :unprocessable_entity if client_id && !client_id.to_s.match?(/\A[a-zA-Z0-9_-]{16,64}\z/)
     result = AkeReception.lock(Current.account.id) do
       member = Current.account_user.reload
-      member.update!(availability: state) if state
+      # Explicit native profile changes still pause the whole account. Desktop
+      # pause/release only removes this instance, so a second device stays online.
+      member.update!(availability: state) if state && (!client_id || state == 'online')
       online = member.reload.availability == 'online'
-      key = "ake-reception:#{Current.account.id}:#{Current.user.id}"
-      online ? Redis::Alfred.set(key, Time.now.to_f + AkeReception::LEASE, ex: AkeReception::LEASE.to_i) : Redis::Alfred.delete(key)
-      { online: online, leaseSeconds: AkeReception::LEASE.to_i, userId: Current.user.id }
+      if client_id
+        instance_online = online && state != 'offline'
+        AkeReception.renew_instance(Current.account.id, Current.user.id, client_id, instance_online)
+      else
+        key = "ake-reception:#{Current.account.id}:#{Current.user.id}"
+        online ? Redis::Alfred.set(key, Time.now.to_f + AkeReception::LEASE, ex: AkeReception::LEASE.to_i) : Redis::Alfred.delete(key)
+        instance_online = online
+      end
+      { online: online && AkeReception.leased?(Current.account.id, Current.user.id), instanceOnline: instance_online,
+        protocolVersion: 2, leaseSeconds: AkeReception::LEASE.to_i, userId: Current.user.id }
     end
     response.headers['Cache-Control'] = 'no-store'
     render json: result
+  end
+
+  def desktop
+    return head :not_found unless AkeReception.enabled?(Current.account.id)
+    return head :forbidden unless (Current.account_user.agent? || Current.account_user.administrator?) && Current.user.confirmed?
+
+    # Counts come from native read watermarks, never from a client-side guess.
+    # Even administrators only get notifications for conversations assigned to
+    # themselves. No customer text/contact data is sent to the desktop bridge.
+    scope = Current.account.conversations.where(assignee_id: Current.user.id)
+    scope = scope.where(inbox_id: Current.user.inboxes.select(:id)) unless Current.account_user.administrator?
+    incoming = Current.account.messages.incoming.reorder(nil).where(private: false)
+      .joins(:conversation).merge(scope)
+      .where('conversations.assignee_last_seen_at IS NULL OR messages.created_at > conversations.assignee_last_seen_at')
+    rows = incoming.group('conversations.display_id').order(Arel.sql('MAX(messages.id) DESC'))
+      .limit(100).pluck('conversations.display_id', Arel.sql('MAX(messages.id)'), Arel.sql('COUNT(*)'))
+    response.headers['Cache-Control'] = 'no-store'
+    render json: { protocolVersion: 2, userId: Current.user.id, accountId: Current.account.id,
+      pubsubToken: Current.user.pubsub_token, unreadCount: incoming.count,
+      conversations: rows.map { |id, last_id, count| { conversationId: id, lastMessageId: last_id, unreadCount: count } } }
   end
 end
 
@@ -177,6 +234,7 @@ SendReplyJob.prepend(AkeReception::DeliveryFence) unless SendReplyJob < AkeRecep
 WebhookJob.prepend(AkeReception::OfficeIngress) unless WebhookJob < AkeReception::OfficeIngress
 Rails.application.routes.prepend do
   post '/api/v1/accounts/:account_id/ake_reception/heartbeat', to: 'api/v1/accounts/ake_reception#heartbeat'
+  get '/api/v1/accounts/:account_id/ake_reception/desktop', to: 'api/v1/accounts/ake_reception#desktop'
   post '/ake/internal/reception/route', to: 'ake_reception_routing#route'
   post '/ake/internal/reception/status', to: 'ake_reception_routing#status'
 end

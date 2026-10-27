@@ -5,7 +5,7 @@ import {join} from 'node:path';
 import {InboxExports} from './exports';
 import {createHash} from 'node:crypto';
 import {config,opportunitySchema,emptyProfile} from './contracts';
-import {workTime,followupDates,mergeFields,isAutomaticMail,csvCell,supportedEvidence} from './policy';
+import {workTime,followupDates,mergeFields,isAutomaticMail,csvCell,supportedEvidence,intakeQuestion} from './policy';
 import {InboxRepository} from './repository';
 import {InboxAutomation} from './automation.service';
 import {OkkiWriter,UncertainWrite,identityMatch,opportunityCompanyId} from './okki';
@@ -14,6 +14,10 @@ import {InboxV2Controller} from './controller';
 import {zip,xlsx} from './export-format';
 const project={idempotencyKey:'test-opportunity',confirmed:true,name:'Fictional acceptance project',projectLocation:'Dubai Test Site',products:['ANPR camera'],estimatedAmount:0,currency:'USD',companyId:'10',contactIds:['20'],businessTypeId:'0',flowId:'30',stageId:'40',ownerId:'50'};
 describe('Inbox policy boundaries',()=>{
+ it('allows basic intake questions without removing the uncovered product question gate',()=>{
+   for(const text of ['你好，现在有人可以接待吗？','项目在迪拜，有200个车位。我们需要先整理哪些信息？','What project details should we provide?'])expect(intakeQuestion(text)).toBe(true);
+   for(const text of ['设备兼容哪些摄像头？','准确报价是多少？','What project details should we provide? Does the camera support every protocol?','设备兼容哪些摄像头？我们需要先整理哪些信息？'])expect(intakeQuestion(text)).toBe(false);
+ });
  it('reads OKKI company relation from both list and detail shapes',()=>{expect(opportunityCompanyId({company:{company_id:123}})).toBe('123');expect(opportunityCompanyId({company_id:123})).toBe('123');});
  it('requires actual project location, products, amount and currency; preserves explicit zero',()=>{expect(opportunitySchema.safeParse(project).success).toBe(true);for(const k of ['projectLocation','products','estimatedAmount','currency'])expect(opportunitySchema.safeParse({...project,[k]:undefined}).success).toBe(false);expect(opportunitySchema.safeParse({...project,estimatedAmount:null}).success).toBe(false);});
  it('checks current tenant customer requirements and accepts an explicit unknown intention',async()=>{
@@ -59,6 +63,22 @@ describe.skipIf(!dbEnabled)('Persistent Inbox controls (isolated PostgreSQL)',()
    expect(JSON.stringify(result)).not.toContain('DO_NOT_EXPOSE');expect(external).not.toHaveBeenCalled();external.mockRestore();
  });
  it('replays one event concurrently without duplicate jobs',async()=>{await Promise.all([service.ingest(inbound()),service.ingest(inbound())]);expect((await store.db.query('SELECT count(*)::int n FROM inbox_v2_events')).rows[0].n).toBe(1);expect((await store.db.query('SELECT count(*)::int n FROM inbox_v2_jobs')).rows[0].n).toBe(2);});
+ it.each([false,true])('reopens resolved office reception while preserving an explicit pause=%s',async(manualPause)=>{
+   vi.stubEnv('INBOX_OFFICE_RECEPTION','true');vi.stubEnv('INBOX_MODEL_READY','true');
+   cw.reception=vi.fn(async()=>({mode:'ai',onlineCount:0,assigneeId:null}));
+   try {
+     await service.ingest(inbound());
+     cw.account.mockResolvedValueOnce({...native(101),status:'resolved'});
+     await service.ingest({event:'conversation_status_changed',id:101,inbox_id:1,account:{id:1},status:'resolved'});
+     expect((await store.conversation(101))!.mode).toBe('paused');
+     if(manualPause)await service.control(101,{action:'pause',expectedRevision:(await store.conversation(101))!.revision,idempotencyKey:'explicit-office-pause'},actor);
+     await service.ingest({...inbound(1002),created_at:1});
+     expect((await store.conversation(101))!.mode).toBe('paused');
+     await service.ingest(inbound(1003));
+     expect((await store.conversation(101))!.mode).toBe(manualPause?'paused':'ai');
+     expect((await store.db.query("SELECT count(*)::int n FROM inbox_v2_jobs WHERE kind='ai' AND state='pending'")).rows[0].n).toBe(manualPause?0:1);
+   } finally {vi.unstubAllEnvs();delete cw.reception;}
+ });
  it('keeps offline form submissions in the human callback queue without model or send jobs',async()=>{
    cw.account.mockResolvedValueOnce({...native(101),additional_attributes:{ake_offline_submission:true}});
    expect(await service.ingest(inbound())).toMatchObject({accepted:true,offlineCallback:true});

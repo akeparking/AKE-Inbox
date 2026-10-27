@@ -19,5 +19,6 @@ await mkdir(join(target, 'web/apps/workspace-web/.next/cache'), { recursive: tru
 await mkdir(join(target, 'web/apps/workspace-web/public'), { recursive: true });
 try { await cp(join(root, 'apps/workspace-web/public'), join(target, 'web/apps/workspace-web/public'), { recursive: true }); } catch (error) { if (error.code !== 'ENOENT') throw error; }
 await cp(join(root, 'deploy/demo'), join(target, 'deploy'), { recursive: true, filter: (path) => !path.includes('__pycache__') });
-await writeFile(join(target, 'manifest.json'), JSON.stringify({ version: '0.2.0', createdAt: new Date().toISOString(), node: process.version, adsMode: 'mock', inboxAutomation: 'account-and-channel-controlled' }, null, 2) + '\n');
+const { version } = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
+await writeFile(join(target, 'manifest.json'), JSON.stringify({ version, createdAt: new Date().toISOString(), node: process.version, adsMode: 'mock', inboxAutomation: 'account-and-channel-controlled' }, null, 2) + '\n');
 console.log('Runtime bundle prepared');

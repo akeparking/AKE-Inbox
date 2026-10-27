@@ -22,6 +22,18 @@ export function isAutomaticMail(body: any, text: string) {
 export const humanRequest = (text: string) => /\b(human|salesperson|speak to (?:a |an )?(?:person|agent)|talk to (?:sales|a person))\b|转人工|人工客服|销售人员/i.test(text);
 export const optedOut = (text: string) => /^\s*(stop|unsubscribe|opt out|退订|停止联系)\s*[.!！。]?\s*$/i.test(text);
 export const commitmentRequest = (text: string) => /\b(price|pricing|quotation|quote|certif\w*|guarantee|delivery date|lead time)\b|报价|价格|交期|认证|保证兼容|承诺/i.test(text);
+// These questions collect project facts or start reception; they do not ask
+// for a product claim. Any other uncovered question keeps the knowledge gate.
+export function intakeQuestion(text: string) {
+  const questions=text.match(/[^?？。.!！;；\n]+[?？]/g)||[];
+  const patterns=[
+    /^(?:(?:你好|您好)[，, ]*)?(?:请问)?(?:现在)?(?:有人|有客服)(?:可以)?(?:接待|在线)(?:吗|么)?[?？]$/,
+    /^(?:我们|我|请问)?(?:还需要|需要|应该|应当|要)(?:先)?(?:准备|整理|提供|补充)?(?:哪些|什么)(?:项目)?(?:资料|信息|材料)[?？]$/,
+    /^(?:what|which) (?:project )?(?:information|details|documents) (?:do|should|can|must) (?:i|we) (?:prepare|provide|share|send)\s*\?$/i,
+    /^(?:hello[, ]*)?(?:is anyone (?:available|online)|can (?:i|we) (?:start|continue) (?:a |the )?(?:chat|conversation))\s*\?$/i,
+  ];
+  return questions.length>0&&questions.every(question=>patterns.some(pattern=>pattern.test(question.trim())));
+}
 export function mergeFields(old: Fields, next: Partial<Fields>, confirmed: string[]) {
   const result = { ...old };
   for (const [key, value] of Object.entries(next)) {

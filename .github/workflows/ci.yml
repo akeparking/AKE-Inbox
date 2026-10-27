@@ -5,6 +5,21 @@ on:
 permissions:
   contents: read
 jobs:
+  desktop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci --prefix desktop --no-fund
+      - run: npm test --prefix desktop
+      - run: npm audit --prefix desktop --audit-level=high
+      - run: npm run package:win --prefix desktop
+        env:
+          AKE_PACKAGE_OUTPUT: ${{ runner.temp }}/ake-windows
   ruby-guards:
     runs-on: ubuntu-latest
     steps:
@@ -15,6 +30,7 @@ jobs:
       - run: gem install --no-document minitest:5.26.2 activesupport:7.2.3.1
       - run: ruby test/inbox-channels/archive_test.rb
       - run: ruby test/inbox-channels/mail-loop-guard-test.rb
+      - run: python3 test/office/model-adapter-test.py
   verify:
     runs-on: ubuntu-latest
     services:

@@ -1,6 +1,6 @@
 {
   "name": "ake-inbox",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "workspaces": [
     "apps/*",
@@ -33,5 +33,9 @@
   "bugs": {
     "url": "https://github.com/akeparking/AKE-Inbox/issues"
   },
-  "homepage": "https://github.com/akeparking/AKE-Inbox#readme"
+  "homepage": "https://github.com/akeparking/AKE-Inbox#readme",
+  "overrides": {
+    "body-parser": "2.4.0",
+    "multer": "2.5.0"
+  }
 }

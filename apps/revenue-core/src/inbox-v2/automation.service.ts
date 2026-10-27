@@ -8,7 +8,7 @@ import { Chatwoot } from './chatwoot';
 import { InboxExports } from './exports';
 import { OkkiWriter, UncertainWrite } from './okki';
 import { config, controlSchema, emptyProfile, fieldsSchema, type Actor, type Conversation, type Job } from './contracts';
-import { stopReason, cleanIncoming, isAutomaticMail, humanRequest, optedOut, commitmentRequest, mergeFields, followupDates, supportedEvidence } from './policy';
+import { stopReason, cleanIncoming, isAutomaticMail, humanRequest, optedOut, commitmentRequest, intakeQuestion, mergeFields, followupDates, supportedEvidence } from './policy';
 
 @Injectable()
 export class InboxAutomation implements OnApplicationBootstrap, OnModuleDestroy {
@@ -180,6 +180,14 @@ export class InboxAutomation implements OnApplicationBootstrap, OnModuleDestroy 
       if(channel==='email' && (isAutomaticMail(body,text)||await this.automaticEmail(body,cid)))return {accepted:true,automaticMail:true};
       const recent=await db.query("SELECT count(*)::int n FROM inbox_v2_events WHERE account_id=$1 AND conversation_id=$2 AND kind='message_created' AND created_at>now()-interval '1 minute'",[cfg.accountId,cid]);
       if(recent.rows[0].n>20){await this.store.audit('system','rate_limited',String(cid),{},db);return {accepted:true,rateLimited:true};}
+      // Closing a managed conversation pauses its old jobs, but a new customer
+      // message can reopen it in the native inbox. Explicit human pauses use
+      // reception_hold and must never be cleared by this automatic transition.
+      if(cfg.officeReception&&(conv as any).reception_managed&&conv.mode==='paused'&&!(conv as any).reception_hold&&
+        current.status==='open'&&!conv.blocked&&!conv.opted_out) {
+        await db.query("UPDATE inbox_v2_conversations SET mode='human_pending',revision=revision+1 WHERE account_id=$1 AND conversation_id=$2",[cfg.accountId,cid]);
+        await this.store.audit('system','reception.reopened',String(cid),{messageId},db);
+      }
       if(cfg.officeReception){
         await db.query('UPDATE inbox_v2_conversations SET reception_managed=true WHERE account_id=$1 AND conversation_id=$2',[cfg.accountId,cid]);
         conv=await this.routeReception((await this.store.conversation(cid,db))!,db);
@@ -270,7 +278,7 @@ export class InboxAutomation implements OnApplicationBootstrap, OnModuleDestroy 
     const messages=(await this.cw.messages(c.conversation_id)).filter(m=>!m.private&&[0,1,'incoming','outgoing'].includes(m.message_type)).slice(-16).map(m=>({id:m.id,role:[0,'incoming'].includes(m.message_type)?'customer':'assistant',text:cleanIncoming(String(m.content||''))}));
     const knowledge=await this.retrieve(input.text);
     if(commitmentRequest(input.text))return this.handoff(job,'commercial_confirmation');
-    if(!knowledge.length && /\?|？/.test(input.text))return this.handoff(job,'knowledge_not_covered');
+    if(!knowledge.length && /\?|？/.test(input.text) && !intakeQuestion(input.text))return this.handoff(job,'knowledge_not_covered');
     const response=await fetch(config().modelUrl+'/generate',{method:'POST',signal:AbortSignal.timeout(80000),headers:{'content-type':'application/json','x-inbox-key':config().internalKey},body:JSON.stringify({messages,profile,knowledge:knowledge.map(k=>({id:k.id,version:k.version,title:k.title,body:k.body,conditions:k.tags.conditions})),maxQuestions:2})});
     if(!response.ok)throw new Error('model_unavailable');const d:any=await response.json();
     if(d.mode!=='api'||typeof d.reply!=='string'||d.reply.length>2000||(d.reply.match(/[?？]/g)||[]).length>2)throw new Error('invalid_model_response');

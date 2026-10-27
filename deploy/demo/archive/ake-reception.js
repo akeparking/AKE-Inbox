@@ -1,4 +1,24 @@
 (() => {
+  if (window.akeDesktopReception) {
+    // Desktop owns its timer in the main process; hidden web pages must not
+    // acquire a second legacy lease or cancel another device's lease.
+    const draw = async () => {
+      if (!document.getElementById('ake-workspace-nav')) return;
+      const result = await window.akeDesktopReception.status();
+      let button = document.getElementById('ake-reception-status');
+      if (!button) {
+        button = document.createElement('button'); button.id = 'ake-reception-status';
+        document.getElementById('ake-workspace-nav').append(button);
+      }
+      button.textContent = result.online ? '接待中 · 点击下线' : '已下线 · 点击接待';
+      button.onclick = () => window.akeDesktopReception.setOnline(!result.online).then(draw);
+    };
+    window.akeDesktopReception.subscribe(draw);
+    const observer = new MutationObserver(() => { if (document.getElementById('ake-workspace-nav')) { observer.disconnect(); void draw(); } });
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+    void draw();
+    return;
+  }
   let running = false;
   async function heartbeat(state) {
     const account = location.pathname.match(/\/app\/accounts\/(\d+)/)?.[1] || new URLSearchParams(location.search).get('account');

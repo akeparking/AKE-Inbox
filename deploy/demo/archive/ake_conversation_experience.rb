@@ -208,7 +208,8 @@ class Api::V1::Widget::AkeConversationStateController < Api::V1::Widget::BaseCon
                       .where(message_type: [:incoming, :outgoing, :template]).includes(:sender, :conversation)
     payload = messages.map do |message|
       sender = message.sender
-      kind = sender.is_a?(AgentBot) ? 'ai' : sender.is_a?(User) ? 'human' : 'system'
+      api_ai = message.outgoing? && message.content_attributes['ake_inbox_job'].present?
+      kind = (sender.is_a?(AgentBot) || api_ai) ? 'ai' : sender.is_a?(User) ? 'human' : 'system'
       name = kind == 'ai' ? 'AI Agent' : kind == 'human' ? sender.available_name : @web_widget.inbox.name
       receipt = if message.incoming?
                   AkeConversationExperience.read_at(message.conversation) >= message.created_at.to_f ? 'read' : 'delivered'
