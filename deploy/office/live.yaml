@@ -1,4 +1,5 @@
-# Enable only after the final source snapshot and authentication reset.
+# Grant channel services outbound access after the office cutover checks.
+# Routine upgrades preserve existing accounts, sessions and channel bindings.
 services:
   web:
     networks: [office, outbound]

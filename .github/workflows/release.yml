@@ -50,7 +50,8 @@ jobs:
           npm run test:google-guards
           python3 test/office/model-adapter-test.py
           npm run typecheck
-          npm run build
+          NEXT_PUBLIC_BASE_PATH=/sales npm run build
+          node scripts/build-demo-bundle.mjs "$RUNNER_TEMP/ake-office-bundle"
           npm run check:public
           npm audit --audit-level=high
           npm ci --prefix desktop --no-fund

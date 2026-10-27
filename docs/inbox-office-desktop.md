@@ -46,7 +46,7 @@ flowchart LR
 ## 部署与恢复
 
 - `deploy/office/compose.yaml`：独立本机运行，默认只读预备环境；`delivery` 启动后台队列，`channels` 启动 WhatsApp。
-- `deploy/office/live.yaml`：在最终迁移和登录重置后授予渠道服务外网访问。数据库与 Redis 不暴露公网。
+- `deploy/office/live.yaml`：完成办公室切流检查后授予渠道服务外网访问。常规版本升级保留现有账号、登录与渠道绑定，不重复执行首次迁移时的登录重置。数据库与 Redis 不暴露公网。
 - `deploy/relay/proxy.mjs`：只转发配置的两个主机，禁止公网访问内部接待路由。
 - 本机 model/tunnel 服务由 systemd 管理；隧道账户只可监听指定的两个回传端口，不能执行 Shell 或开其他转发端口。
 - Windows 登录时启动 WSL 保活任务；接通电源时禁用自动睡眠，电池设置不变。重启后需要完成 Windows 登录。此轮未执行整机重启，因此完整开机恢复仍需一次维护窗口验收。

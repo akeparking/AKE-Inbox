@@ -6,6 +6,8 @@ if (!destination) throw new Error('Usage: node scripts/build-demo-bundle.mjs /ab
 const root = process.cwd();
 const target = resolve(destination);
 if (target === root || target.startsWith(root + '/')) throw new Error('Keep runtime bundles outside the source repository');
+const build = JSON.parse(await readFile(join(root, 'apps/workspace-web/.next/required-server-files.json'), 'utf8'));
+if (build.config?.basePath !== '/sales') throw new Error('Office/demo bundles require a workspace built with NEXT_PUBLIC_BASE_PATH=/sales');
 await mkdir(target, { recursive: true });
 const core = join(target, 'core');
 for (const dir of ['apps/revenue-core', 'packages/contracts', 'apps/workspace-web']) await mkdir(join(core, dir), { recursive: true });

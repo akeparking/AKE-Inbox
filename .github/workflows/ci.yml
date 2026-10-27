@@ -81,5 +81,9 @@ jobs:
       - run: npm run test:google-guards
       - run: npm run typecheck
       - run: npm run build
+        env:
+          NEXT_PUBLIC_BASE_PATH: /sales
+      - name: Verify office deployment bundle
+        run: node scripts/build-demo-bundle.mjs "$RUNNER_TEMP/ake-office-bundle"
       - run: npm run check:public
       - run: npm audit --audit-level=high
