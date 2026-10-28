@@ -30,6 +30,13 @@ async function bootstrap() {
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
 
+  // SaaS scheduler lives in SaasWorker and enters each verified tenant context.
+  if(process.env.SAAS_MODE==='true'){
+    const keepAlive=setInterval(()=>undefined,60000);
+    process.on('SIGINT',()=>clearInterval(keepAlive));process.on('SIGTERM',()=>clearInterval(keepAlive));
+    logger.log('Tenant worker ready');return;
+  }
+
   if (redisUrl) {
     connection = new IORedis(redisUrl, { maxRetriesPerRequest: null });
     queue = new Queue(CONVERSION_QUEUE, { connection });

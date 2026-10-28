@@ -2,6 +2,7 @@ import { Inject, Injectable, OnApplicationBootstrap, OnModuleDestroy } from "@ne
 import type { CreateInquiryInput, QualificationAnalysis } from "@ake/contracts";
 import { REVENUE_STORE, type RevenueStore } from "../store/store.types";
 import { analyzeInquiry, validateAnalysis } from "./qualification";
+import { saasEnabled } from '../saas/context';
 
 @Injectable()
 export class InboxService implements OnApplicationBootstrap, OnModuleDestroy {
@@ -38,6 +39,7 @@ export class InboxService implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   onApplicationBootstrap() {
+    if(saasEnabled())return; // Tenant worker owns scoped processing.
     this.timer = setInterval(() => { void this.processNext().catch(() => undefined); }, 1500);
     this.timer.unref();
   }

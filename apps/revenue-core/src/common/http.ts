@@ -1,10 +1,13 @@
 import type { Request } from "express";
 import { loadConfig } from "../config";
+import { currentTenant, saasEnabled } from '../saas/context';
 
 export function requestWorkspace(request: Request): string {
+  if(saasEnabled())return currentTenant().workspaceId;
   return String(request.headers["x-workspace-id"] || loadConfig().defaultWorkspaceId);
 }
 export function requestUser(request: Request): string {
+  if(saasEnabled())return currentTenant().userId;
   return String(request.headers["x-user-id"] || loadConfig().defaultUserId);
 }
 

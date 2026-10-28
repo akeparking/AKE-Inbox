@@ -12,7 +12,7 @@ export class ConversionQueueService implements OnModuleDestroy {
 
   constructor() {
     const redisUrl = loadConfig().redisUrl;
-    if (!redisUrl) return;
+    if (!redisUrl || process.env.SAAS_MODE === 'true') return;
     this.connection = new IORedis(redisUrl, { maxRetriesPerRequest: null, enableReadyCheck: true });
     this.queue = new Queue(CONVERSION_QUEUE, { connection: this.connection });
   }

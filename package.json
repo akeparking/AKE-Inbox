@@ -23,7 +23,8 @@
     "check:public": "node scripts/sync-marketing-assets.mjs --check && node scripts/public-release-check.mjs",
     "typecheck": "npm run build -w @ake/contracts && npm run typecheck -w @ake/revenue-core && npm run typecheck -w @ake/workspace-web",
     "test:channels": "node --test test/inbox-channels/whatsapp.test.mjs test/marketing/waha-guard.test.cjs",
-    "test:google-guards": "python3 supplemental/google-offline/test-job.py"
+    "test:google-guards": "python3 supplemental/google-offline/test-job.py",
+    "test:saas": "npm run build -w @ake/contracts && npm run build -w @ake/revenue-core && node --test test/saas/acceptance.test.mjs"
   },
   "description": "Self-hosted B2B inquiry operations: Inbox, reviewed CRM workflow and auditable marketing feedback.",
   "license": "MIT",

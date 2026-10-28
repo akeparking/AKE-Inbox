@@ -448,6 +448,6 @@ export class MarketingService {
       await this.repo.db.query("DELETE FROM marketing_visitors v WHERE site_id=$1 AND last_seen_at<now()-($2||' days')::interval AND NOT EXISTS(SELECT 1 FROM marketing_inquiries i WHERE i.visitor_id=v.id) AND NOT EXISTS(SELECT 1 FROM marketing_links l WHERE l.visitor_id=v.id)",[s.id,Number(s.settings.retentionDays||90)]);
     }
   }
-  onApplicationBootstrap(){if(process.env.MARKETING_ENABLED==='true'){this.timer=setInterval(()=>{void this.intakeTick().catch(()=>undefined);void this.prune().catch(()=>undefined);},1000);this.timer.unref();}}
+  onApplicationBootstrap(){if(process.env.SAAS_MODE!=='true'&&process.env.MARKETING_ENABLED==='true'){this.timer=setInterval(()=>{void this.intakeTick().catch(()=>undefined);void this.prune().catch(()=>undefined);},1000);this.timer.unref();}}
   onModuleDestroy(){if(this.timer)clearInterval(this.timer);}
 }

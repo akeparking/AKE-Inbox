@@ -1,9 +1,11 @@
 import { marketingAttribution } from '../marketing/contracts';
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHmac } from "node:crypto";
+import { saasEnabled, currentTenant } from '../saas/context';
 import { ConflictException, NotFoundException, BadRequestException } from "@nestjs/common";
 import { loadConfig } from "../config";
 import type { PoolClient, QueryResultRow } from "pg";
 import { Pool } from "pg";
+import { tenantPool } from '../saas/pool';
 import {
   identifierPreview,
   maskEmail,
@@ -48,11 +50,16 @@ function iso(value: string | Date | null | undefined): string | undefined {
 
 export class PostgresRevenueStore implements RevenueStore {
   private readonly pool: Pool;
-  private readonly cipher: FieldCipher;
+  private readonly legacyCipher: FieldCipher;
+  private readonly encryptionKey?: string;
+  private get cipher():FieldCipher {
+    return saasEnabled()?new FieldCipher(createHmac('sha256',this.encryptionKey||'').update('saas:'+currentTenant().workspaceId).digest('hex')):this.legacyCipher;
+  }
 
   constructor(databaseUrl: string, encryptionKey?: string) {
-    this.pool = new Pool({ connectionString: databaseUrl, max: 12 });
-    this.cipher = new FieldCipher(encryptionKey);
+    this.pool = tenantPool({ connectionString: databaseUrl, max: 12 });
+    this.encryptionKey=encryptionKey;
+    this.legacyCipher = new FieldCipher(encryptionKey);
   }
 
   async saveRawEvent(input: RawEventInput): Promise<void> {
