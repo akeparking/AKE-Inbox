@@ -10,8 +10,10 @@ and `24721` must bind only on the VPS loopback. Keep the relay listener on loopb
 behind the existing TLS proxy. Do not expose the tunnel or relay ports publicly.
 
 Mount the reviewed `relay.mjs` read-only in a Node 24 container, use the host network
-for the loopback tunnel, and run `node /relay/proxy.mjs`. Configure Docker's
-`unless-stopped` restart policy so a VPS reboot restores the bridge. Preserve
+for the loopback tunnel, and run `node /relay/proxy.mjs`. Use the included
+`relay.service.example` with systemd's `Restart=always`, or Docker's
+`unless-stopped` policy when systemd does not manage the container. Do not enable
+two competing restart managers. The deployed service uses systemd. Preserve
 existing TLS/website routing. Retain the previous image, environment file and
 script before switching the relay mount to a new version directory.
 

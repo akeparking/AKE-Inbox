@@ -1,0 +1,12 @@
+[Unit]
+Description=AKE Inbox thin office relay
+After=docker.service network-online.target
+Requires=docker.service
+[Service]
+ExecStartPre=-/usr/bin/docker rm -f ake-inbox-relay
+ExecStart=/usr/bin/docker run --rm --name ake-inbox-relay --network host --read-only --cap-drop ALL --security-opt no-new-privileges --memory 96m --user 1000:1000 --env-file /srv/ake-inbox-relay/relay.env -v /srv/ake-inbox-relay/relay.mjs:/relay/proxy.mjs:ro node:24-alpine node /relay/proxy.mjs
+ExecStop=/usr/bin/docker stop -t 10 ake-inbox-relay
+Restart=always
+RestartSec=5
+[Install]
+WantedBy=multi-user.target
