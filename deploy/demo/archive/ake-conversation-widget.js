@@ -6,15 +6,46 @@
   const messages = new Map();
   const style = document.createElement('style');
   style.textContent = `
+    html { font-family:system-ui,sans-serif; }
+    #app .header-expanded { padding:24px; background:#da251d; }
+    #app .header-expanded h2 { color:#fff; font-size:24px; line-height:1.3; letter-spacing:-.5px; font-weight:650; margin-top:8px; }
+    #app .header-expanded p { color:#fff; font-size:14px; line-height:1.6; }
+    #app .header-expanded .actions button,#app .header-expanded .actions svg { color:#fff; }
+    #app .expanded ~ .z-50 { justify-content:flex-start; padding:24px; }
+    #app .expanded ~ .z-50 > div { box-shadow:none; border:1px solid #e0e6eb; outline:none; padding:20px; gap:16px; }
+    #app .expanded ~ .z-50 button { min-height:44px; justify-content:space-between; border-top:1px solid #edf0f3; padding-top:12px; }
+    #app .collapsed header { padding:16px 20px; min-height:76px; border-bottom:1px solid #e0e6eb; }
+    #app .collapsed header > div:first-child { min-width:0; }
+    #app .actions button,#app .collapsed header > div > button { min-width:44px; min-height:44px; display:inline-flex; align-items:center; justify-content:center; }
+    #app .actions .close-button:not(.rn-close-button) { display:none; }
+    #app .is-mobile .actions .close-button,#app .is-bubble-hidden .actions .close-button { display:inline-flex; }
+    #app .formkit-form { padding:24px; background:#fff; }
+    #app .formkit-form > div:first-child { color:#62717e; font-size:14px; line-height:1.6; }
+    #app .formkit-outer { margin-top:0; margin-bottom:16px; }
+    #app .formkit-label { font-size:13px; color:#24323e; padding:0 0 6px; text-transform:none; }
+    #app .formkit-input { min-height:44px; border-radius:8px; font-size:14px; padding:11px 12px; outline-color:#d8e0e6; }
+    #app .formkit-input:focus { outline-color:#da251d; box-shadow:0 0 0 3px #da251d14; }
+    #app textarea.formkit-input { min-height:112px; resize:vertical; }
+    #app .formkit-form > button { min-height:46px; border-radius:8px; margin-top:4px; font-weight:600; }
+    #app .formkit-message { font-size:12px; }
+    #app button:focus-visible { outline:2px solid #a51e18; outline-offset:3px; }
+    #app .conversation--container { background:#f7f9fb; }
+    #app .chat-bubble { font-size:14px; line-height:1.6; }
+    #app .branding--link { font-size:12px; }
+    #app .dark .formkit-form { background:#171b20; }
+    #app .dark .formkit-label { color:#e7edf3; }
+    #app .dark .formkit-form > div:first-child { color:#bac6d2; }
+    #app .dark .conversation--container { background:#171b20; }
+    @media(max-width:350px) { #app .header-expanded { padding:20px 18px; } #app .expanded ~ .z-50,#app .formkit-form { padding:20px 18px; } }
     .ake-has-message-meta { display:flex; flex-direction:column; align-items:stretch; }
     .ake-has-message-meta > .agent-name { display:none !important; }
-    .ake-message-meta { display:flex; flex-wrap:wrap; gap:4px; align-items:center; margin:5px 4px 8px; font:11px/1.5 system-ui,sans-serif; color:#64748b; }
+    .ake-message-meta { display:flex; flex-wrap:wrap; gap:4px; align-items:center; margin:5px 4px 8px; font:12px/1.5 system-ui,sans-serif; color:#64748b; }
     .user-message .ake-message-meta { justify-content:flex-end; text-align:right; }
     .ake-message-meta[data-receipt=read] .ake-receipt { color:#2563eb; }
     .ake-message-meta[data-receipt=failed] { color:#b91c1c; }
     .dark .ake-message-meta { color:#a8b5c7; }
     .dark .ake-message-meta[data-receipt=read] .ake-receipt { color:#93c5fd; }
-    .ake-continuity-note { margin:4px 12px 8px; color:#64748b; text-align:center; font:11px/1.5 system-ui,sans-serif; }
+    .ake-continuity-note { margin:8px 16px 12px; color:#64748b; text-align:center; font:12px/1.5 system-ui,sans-serif; }
   `;
   document.head.append(style);
   let busy = false, timer, previousIds = '', lastFetch = 0, lastState;
@@ -27,6 +58,16 @@
     return node;
   }
   function render() {
+    // FormKit provides localized inline validation. Native browser tooltips
+    // use the browser installation language and can otherwise reintroduce Chinese.
+    document.querySelectorAll('#app form.formkit-form').forEach(form => { form.noValidate = true; });
+    for (const [selector, label] of [
+      ['.actions .close-button', 'Close chat'],
+      ['.actions .new-window--button', 'Open chat in a new window'],
+      ['.collapsed header > div:first-child > button', 'Back to home'],
+    ]) {
+      document.querySelectorAll(selector).forEach(button => button.setAttribute('aria-label', label));
+    }
     const container = document.querySelector('.conversation--container');
     const followBottom = container && container.scrollHeight - container.scrollTop - container.clientHeight < 80;
     let changed = false;
@@ -39,7 +80,7 @@
       const pending = own && wrap.classList.contains('in-progress');
       if (!item && !failed && !pending) continue;
       const date = item && new Date(item.created_at);
-      const clock = date && Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat(undefined, {hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(date) : '';
+      const clock = date && Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat('en', {hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(date) : '';
       const receipt = failed ? 'failed' : pending ? 'sending' : item?.receipt;
       const label = ({read:'Read',delivered:'Delivered',failed:'Not sent',sending:'Sending…'})[receipt] || '';
       const name = own ? '' : item?.sender_name || '';
@@ -55,7 +96,7 @@
       if (name) parts.push(makeText('span', name, 'ake-sender-name'));
       if (clock) {
         const time = makeText('time', clock); time.dateTime = item.created_at;
-        time.title = date.toLocaleString(); parts.push(time);
+        time.title = date.toLocaleString('en'); parts.push(time);
       }
       if (label) {
         const status = makeText('span', label, 'ake-receipt');

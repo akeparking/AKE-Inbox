@@ -1,48 +1,134 @@
 (() => {
-  if (!window.chatwootWebChannel?.websiteToken) return;
+  'use strict';
+  if (!window.chatwootWebChannel?.websiteToken || document.getElementById('ake-offline-form')) return;
   const token = window.chatwootWebChannel.websiteToken;
-  const zh = (navigator.language || '').startsWith('zh');
-  const copy = zh ? ['给我们留言', '目前没有坐席在线。请留下您的信息，我们上线后会联系您。', '姓名', '邮箱', '留言', '提交留言', '留言已收到', '我们会通过您填写的邮箱与您联系。', '提交失败，请稍后重试。'] : ['Leave us a message', 'Our team is offline. Leave your details and we will get back to you.', 'Name', 'Email', 'Message', 'Send message', 'Message received', 'Our team will contact you at the email you provided.', 'Could not submit. Please try again.'];
-  const layer = document.createElement('section'); layer.id = 'ake-offline-form'; layer.hidden = true;
-  layer.style.cssText = 'position:fixed;inset:0;z-index:10000;background:#fff;color:#273540;overflow:auto;font:14px/1.55 system-ui';
-  const companyLabel = zh ? '公司名称' : 'Company name';
+  const layer = document.createElement('section');
+  layer.id = 'ake-offline-form'; layer.lang = 'en'; layer.hidden = true;
+  layer.setAttribute('aria-labelledby', 'ake-offline-title');
   layer.innerHTML = `<style>
-#ake-offline-form[hidden]{display:none}#ake-offline-form *{box-sizing:border-box}#ake-offline-form header{height:64px;background:#da251d;color:#fff;display:flex;align-items:center;justify-content:space-between;padding:0 20px}#ake-offline-form header strong{font-size:16px}#ake-offline-form header span{font-size:13px}#ake-offline-form header span:before{content:"";display:inline-block;width:7px;height:7px;background:#ffd2cf;border-radius:50%;margin-right:7px}#ake-offline-form .ake-form-body{padding:20px 18px}#ake-offline-form h2{font-size:19px;margin:0 0 8px}#ake-offline-form p{margin:7px 0 18px;color:#677681}#ake-offline-form form{background:#eff3f6;border-radius:10px;padding:18px}#ake-offline-form label{display:block;margin:0 0 15px;color:#586773;font-size:13px}#ake-offline-form em{font-style:normal;color:#da251d}#ake-offline-form input,#ake-offline-form textarea{display:block;width:100%;padding:11px;margin-top:6px;border:1px solid #e0e6eb;border-radius:5px;background:white;font:14px system-ui;color:#273540;min-height:44px}#ake-offline-form textarea{resize:vertical}#ake-offline-form button{display:block;min-height:44px;background:#da251d;color:white;border:0;border-radius:22px;margin:20px auto 0;padding:10px 26px;font:inherit;cursor:pointer}#ake-offline-form button:disabled{opacity:.6}#ake-offline-form :focus-visible{outline:2px solid #a11b17;outline-offset:2px}#ake-offline-form small{display:block;text-align:center;margin-top:20px;color:#78848d;font-size:11px;white-space:nowrap}#ake-offline-form [role=status]{margin-bottom:0;color:#a11b17}
-</style><header><strong>AKE Parking</strong><span>${zh ? '离线' : 'Offline'}</span></header><div class="ake-form-body"><h2>${copy[0]}</h2><p>${copy[1]}</p><form><label><em>*</em> ${copy[3]}<input name="email" type="email" required maxlength="254" autocomplete="email"></label><label>${copy[2]}<input name="name" maxlength="120" autocomplete="name"></label><label>${companyLabel}<input name="company" maxlength="200" autocomplete="organization"></label><label><em>*</em> ${copy[4]}<textarea name="message" required maxlength="5000" rows="3"></textarea></label><button type="submit">${copy[5]}</button><p role="status" aria-live="polite"></p></form><small>Powered by AKE Parking</small></div>`;
+    #ake-offline-form[hidden]{display:none}
+    #ake-offline-form{position:fixed;inset:0;z-index:10000;overflow:auto;background:#fff;color:#24323e;font:14px/1.55 system-ui,sans-serif;color-scheme:light}
+    #ake-offline-form *{box-sizing:border-box}
+    #ake-offline-form header{min-height:76px;background:#da251d;color:#fff;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 24px}
+    #ake-offline-form header strong{display:block;font-size:17px;letter-spacing:.1px}
+    #ake-offline-form .ake-offline-status{display:flex;align-items:center;gap:7px;font-size:12px;margin-top:3px;color:#fff}
+    #ake-offline-form .ake-offline-status:before{content:"";width:6px;height:6px;border:1px solid currentColor;border-radius:50%}
+    #ake-offline-form .ake-close{min-width:44px;min-height:44px;margin-right:-12px;padding:8px;background:transparent;color:#fff;border:1px solid #ffffff60;border-radius:8px;font:13px system-ui;cursor:pointer}
+    #ake-offline-form .ake-close[hidden]{display:none}
+    #ake-offline-form .ake-form-body{padding:24px;max-width:480px;margin:auto}
+    #ake-offline-form h2{font-size:21px;line-height:1.3;font-weight:650;letter-spacing:-.4px;margin:0 0 10px;outline-offset:4px}
+    #ake-offline-form .ake-intro{margin:0 0 24px;color:#62717e;font-size:14px}
+    #ake-offline-form .ake-field{margin:0 0 16px}
+    #ake-offline-form label{display:flex;justify-content:space-between;gap:8px;margin:0 0 6px;padding:0;font-size:13px;font-weight:600;text-transform:none}
+    #ake-offline-form .ake-optional{font-size:12px;color:#71808c;font-weight:400}
+    #ake-offline-form input,#ake-offline-form textarea{display:block;width:100%;min-height:44px;padding:11px 12px;margin:0;border:1px solid #d8e0e6;border-radius:8px;background:#fff;color:#24323e;font:14px/1.5 system-ui;outline:none;box-shadow:none}
+    #ake-offline-form input::placeholder,#ake-offline-form textarea::placeholder{color:#7b8893}
+    #ake-offline-form textarea{min-height:100px;resize:vertical}
+    #ake-offline-form input:hover,#ake-offline-form textarea:hover{border-color:#9eacb8}
+    #ake-offline-form input:focus,#ake-offline-form textarea:focus{border-color:#da251d;box-shadow:0 0 0 3px #da251d14}
+    #ake-offline-form [aria-invalid=true]{border-color:#b91c1c}
+    #ake-offline-form .ake-field-error{display:block;min-height:0;margin:4px 0 0;color:#b91c1c;font-size:12px}
+    #ake-offline-form .ake-field-error:empty{display:none}
+    #ake-offline-form .ake-submit{width:100%;min-height:46px;margin:4px 0 0;padding:12px 16px;border:0;border-radius:8px;background:#da251d;color:#fff;font:600 14px system-ui;cursor:pointer}
+    #ake-offline-form .ake-submit:hover{background:#bc2019}
+    #ake-offline-form button:disabled{opacity:.65;cursor:wait}
+    #ake-offline-form :focus-visible{outline:2px solid #98221c;outline-offset:3px}
+    #ake-offline-form .ake-close:focus-visible{outline-color:#fff}
+    #ake-offline-form .ake-helper{font-size:12px;color:#62717e;margin:10px 0 0;text-align:center}
+    #ake-offline-form .ake-powered{display:block;border-top:1px solid #edf0f3;padding-top:16px;margin-top:24px;color:#71808c;text-align:center;font-size:12px;white-space:nowrap}
+    #ake-offline-form [role=status]{margin:12px 0 0;color:#b91c1c;font-size:13px}
+    #ake-offline-form [role=status]:empty{display:none}
+    #ake-offline-form[data-submitted=true] .ake-form-body{padding-top:40px}
+    @media(max-width:350px){#ake-offline-form header{padding:14px 18px}#ake-offline-form .ake-form-body{padding:20px 18px}#ake-offline-form h2{font-size:20px}}
+  </style>
+  <header><div><strong>AKE Parking</strong><span class="ake-offline-status">Team offline</span></div><button class="ake-close" type="button" aria-label="Close chat" hidden>Close</button></header>
+  <div class="ake-form-body">
+    <h2 id="ake-offline-title" tabindex="-1">Tell us about your project</h2>
+    <p class="ake-intro">Leave your details and a message. Our team will follow up by email.</p>
+    <form novalidate>
+      <div class="ake-field"><label for="ake-visitor-email">Work email</label><input id="ake-visitor-email" name="email" type="email" required maxlength="254" autocomplete="email" placeholder="you@company.com" aria-describedby="ake-email-error"><span id="ake-email-error" class="ake-field-error"></span></div>
+      <div class="ake-field"><label for="ake-visitor-name">Your name <span class="ake-optional">Optional</span></label><input id="ake-visitor-name" name="name" maxlength="120" autocomplete="name" placeholder="Full name" aria-describedby="ake-name-error"><span id="ake-name-error" class="ake-field-error"></span></div>
+      <div class="ake-field"><label for="ake-visitor-company">Company <span class="ake-optional">Optional</span></label><input id="ake-visitor-company" name="company" maxlength="200" autocomplete="organization" placeholder="Company name" aria-describedby="ake-company-error"><span id="ake-company-error" class="ake-field-error"></span></div>
+      <div class="ake-field"><label for="ake-visitor-message">Project details</label><textarea id="ake-visitor-message" name="message" required maxlength="5000" rows="3" placeholder="What are you planning? Include your location and project requirements." aria-describedby="ake-message-error"></textarea><span id="ake-message-error" class="ake-field-error"></span></div>
+      <button class="ake-submit" type="submit">Send message</button>
+      <p class="ake-helper">We'll use your email to reply to this inquiry.</p>
+      <p role="status" aria-live="polite"></p>
+    </form>
+    <small class="ake-powered">Powered by AKE Parking</small>
+  </div>`;
   document.body.append(layer);
+  const form = layer.querySelector('form');
+  const button = layer.querySelector('.ake-submit');
+  const status = layer.querySelector('[role=status]');
+  const close = layer.querySelector('.ake-close');
+  if (window.self !== window.top || window.ReactNativeWebView) {
+    close.hidden = false;
+    close.onclick = () => {
+      if (window.self !== window.top) window.parent.postMessage('chatwoot-widget:{"event":"closeWindow"}', '*');
+      else window.ReactNativeWebView.postMessage('chatwoot-widget:{"type":"close-widget"}');
+    };
+  }
   let busy = false, submitted = false, checking = false, hasConversation = false;
-  // An existing conversation must remain accessible when agents go offline,
-  // including when a visitor returns after replying through email.
+  const submission = crypto.randomUUID();
+  function show(visible) {
+    layer.hidden = !visible;
+    const app = document.getElementById('app');
+    if (app) {
+      app.inert = visible;
+      if (visible) app.setAttribute('aria-hidden', 'true');
+      else app.removeAttribute('aria-hidden');
+    }
+  }
+  layer.addEventListener('keydown', event => { if (event.key === 'Escape' && !close.hidden) close.click(); });
+  // Returning visitors retain their existing thread even when agents go offline.
   window.addEventListener('ake:conversation-state', event => {
     hasConversation = event.detail?.hasConversation === true;
-    if (hasConversation && !submitted) layer.hidden = true;
+    if (hasConversation && !submitted) show(false);
   });
-  const submission = crypto.randomUUID();
   async function availability() {
-    if (checking || busy) return; checking = true;
+    if (checking || busy) return;
+    checking = true;
     try {
-      const r = await fetch(`/api/v1/widget/ake_availability?website_token=${encodeURIComponent(token)}`, { cache: 'no-store', signal: AbortSignal.timeout(8000) });
-      if (!r.ok) return;
-      const data = await r.json();
-      // Keep a partly completed form intact if an agent comes online mid-entry.
-      const dirty = [...layer.querySelectorAll('input,textarea')].some(x => x.value);
-      layer.hidden = !submitted && (hasConversation || (data.online && !dirty));
-    } catch { /* Keep the last known UI during a transient status failure. */ }
+      const response = await fetch(`/api/v1/widget/ake_availability?website_token=${encodeURIComponent(token)}`, { cache: 'no-store', signal: AbortSignal.timeout(8000) });
+      if (!response.ok) return;
+      const data = await response.json();
+      const dirty = [...form.elements].some(field => field.value?.trim());
+      show(submitted || (!hasConversation && (!data.online || dirty)));
+    } catch { /* Preserve the last known state and entered values during an outage. */ }
     finally { checking = false; }
   }
-  layer.querySelector('form').addEventListener('submit', async event => {
-    event.preventDefault(); if (busy || submitted) return; busy = true;
-    const button = event.submitter, message = layer.querySelector('[role=status]'); button.disabled = true; message.textContent = '';
+  function validate(field) {
+    let error = '';
+    if (field.required && !field.value.trim()) error = field.name === 'email' ? 'Please enter your work email.' : 'Please tell us about your project.';
+    else if (field.validity.typeMismatch) error = 'Please enter a valid email address.';
+    else if (field.validity.tooLong) error = `Please use ${field.maxLength} characters or fewer.`;
+    field.setAttribute('aria-invalid', String(!!error));
+    layer.querySelector(`#ake-${field.name}-error`).textContent = error;
+    return !error;
+  }
+  form.addEventListener('input', event => {
+    if (event.target.getAttribute('aria-invalid') === 'true') validate(event.target);
+  });
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (busy || submitted) return;
+    const invalid = [...form.querySelectorAll('input,textarea')].filter(field => !validate(field));
+    if (invalid.length) { status.textContent = 'Please check the highlighted fields.'; invalid[0].focus(); return; }
+    busy = true; button.disabled = true; button.textContent = 'Sending…'; status.textContent = ''; form.setAttribute('aria-busy', 'true');
     try {
+      const values = Object.fromEntries([...new FormData(form)].map(([key, value]) => [key, value.trim()]));
       const response = await fetch(`/api/v1/widget/ake_offline?website_token=${encodeURIComponent(token)}`, {
         method: 'POST', headers: { 'content-type': 'application/json', 'X-Auth-Token': window.authToken },
-        body: JSON.stringify({ ...Object.fromEntries(new FormData(event.target)), submission_id: submission }), signal: AbortSignal.timeout(20000),
+        body: JSON.stringify({ ...values, submission_id: submission }), signal: AbortSignal.timeout(20000),
       });
       if (!response.ok) throw new Error();
-      submitted = true; layer.querySelector('h2').textContent = copy[6]; layer.querySelector('p').textContent = copy[7]; event.target.hidden = true;
-    } catch { message.textContent = copy[8]; }
-    finally { busy = false; button.disabled = false; }
+      submitted = true; layer.dataset.submitted = 'true';
+      layer.querySelector('h2').textContent = 'Message received';
+      layer.querySelector('.ake-intro').textContent = 'Thank you for reaching out. Our team will reply to the email address you provided.';
+      form.hidden = true; layer.querySelector('h2').focus();
+    } catch { status.textContent = 'Your message could not be sent. Please try again. Your details are still here.'; }
+    finally { busy = false; button.disabled = false; button.textContent = 'Send message'; form.removeAttribute('aria-busy'); }
   });
   availability(); setInterval(availability, 15000);
-  addEventListener('visibilitychange', availability);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) availability(); });
 })();

@@ -25,7 +25,10 @@ if ENV['AKE_INBOX_BRAND']
       return unless response.media_type == 'text/html'
 
       css = '<style id="ake-widget-brand">.branding--link{white-space:nowrap!important;flex-wrap:nowrap!important;flex-shrink:0;max-width:100%;width:max-content;gap:4px;line-height:1.4;filter:none!important}.branding--link span{white-space:nowrap!important;flex-shrink:0}.branding--link img{width:12px!important;height:12px!important;flex:0 0 12px;object-fit:contain;margin:0!important}</style>'
-      response.body = response.body.sub('</head>', "#{css}</head>")
+      # Execute before the deferred widget bundle; SDK/browser locale requests
+      # may only select English here. Staff account/user locales stay untouched.
+      locale = '<script id="ake-widget-locale">document.documentElement.lang="en";document.documentElement.dir="ltr";if(window.chatwootWebChannel){window.chatwootWebChannel.locale="en";window.chatwootWebChannel.websiteName=window.globalConfig.INSTALLATION_NAME;window.chatwootWebChannel.enabledLanguages=window.chatwootWebChannel.enabledLanguages.filter(function(language){return language.iso_639_1_code==="en";});}</script>'
+      response.body = response.body.sub('</head>', "#{css}#{locale}</head>")
       response.headers.delete('Content-Length')
     end
   end

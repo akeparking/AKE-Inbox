@@ -1,7 +1,7 @@
 (() => {
   const $=id=>document.getElementById(id),account=new URL(location.href).searchParams.get('account')||'1';
   const api=path=>window.akeApi(account,'/ake_customers'+path),escape=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const names={'Channel::WebWidget':'Website','Channel::Email':'邮箱','Channel::Api':'WhatsApp'},tags=items=>items.map(x=>`<span class="tag">${escape(x)}</span>`).join('');
+  const names={'Channel::WebWidget':'网站','Channel::Email':'邮箱','Channel::Api':'WhatsApp'},tags=items=>items.map(x=>`<span class="tag">${escape(x)}</span>`).join('');
   const date=value=>value?new Date(value).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}):'—';
   const conversation=id=>`/app/accounts/${encodeURIComponent(account)}/conversations/${Number(id)}`;
   let page=1,busy=false,detailId;

@@ -1,46 +1,38 @@
 (() => {
-  if (window.akeDesktopReception) {
-    // Desktop owns its timer in the main process; hidden web pages must not
-    // acquire a second legacy lease or cancel another device's lease.
-    const draw = async () => {
-      if (!document.getElementById('ake-workspace-nav')) return;
-      const result = await window.akeDesktopReception.status();
-      let button = document.getElementById('ake-reception-status');
-      if (!button) {
-        button = document.createElement('button'); button.id = 'ake-reception-status';
-        document.getElementById('ake-workspace-nav').append(button);
-      }
-      button.textContent = result.online ? '接待中 · 点击下线' : '已下线 · 点击接待';
-      button.onclick = () => window.akeDesktopReception.setOnline(!result.online).then(draw);
-    };
-    window.akeDesktopReception.subscribe(draw);
-    const observer = new MutationObserver(() => { if (document.getElementById('ake-workspace-nav')) { observer.disconnect(); void draw(); } });
-    observer.observe(document.documentElement, { childList: true, subtree: true });
-    void draw();
-    return;
+  'use strict';
+  let running = false, lastState;
+  function draw(state, error = false) {
+    const nav = document.getElementById('ake-workspace-nav');
+    if (!nav) return;
+    let button = document.getElementById('ake-reception-status');
+    if (!button) { button = document.createElement('button'); button.id = 'ake-reception-status'; button.type = 'button'; nav.append(button); }
+    button.dataset.state = error ? 'error' : state?.online ? 'online' : 'offline';
+    button.textContent = error ? '连接中断 · 重试' : state?.online ? '接待中 · 暂停接待' : '已暂停 · 开始接待';
+    button.setAttribute('aria-label', error ? '接待连接中断，点击重试' : state?.online ? '当前正在接待，点击暂停接待' : '当前已暂停，点击开始接待');
+    button.setAttribute('aria-pressed', String(!error && !!state?.online));
+    button.title = error ? '接待状态暂时无法确认，请重试。' : state?.online ? '暂停后停止为此接待实例分配新会话。' : '开始接待后接收新会话。';
+    button.disabled = running;
+    button.onclick = () => refresh(error ? undefined : state?.online ? 'offline' : 'online');
   }
-  let running = false;
-  async function heartbeat(state) {
+  async function refresh(state) {
+    if (running) return;
     const account = location.pathname.match(/\/app\/accounts\/(\d+)/)?.[1] || new URLSearchParams(location.search).get('account');
-    if (!account || !window.akeApi || running) return;
+    if (!account || (!window.akeDesktopReception && !window.akeApi)) return;
     running = true;
+    const button = document.getElementById('ake-reception-status');
+    if (button && state) { button.disabled = true; button.textContent = '正在切换…'; }
     try {
-      const result = await window.akeApi(account, '/ake_reception/heartbeat', state ? { state } : {});
-      let button = document.getElementById('ake-reception-status');
-      if (!button && document.getElementById('ake-workspace-nav')) {
-        button = document.createElement('button'); button.id = 'ake-reception-status';
-        button.style.cssText = 'border:1px solid #cbd5e1;border-radius:5px;padding:8px 12px;background:white;color:#253345;cursor:pointer;white-space:nowrap';
-        document.getElementById('ake-workspace-nav').append(button);
-      }
-      if (button) {
-        button.textContent = result.online ? '接待中 · 点击下线' : '已下线 · 点击接待';
-        button.onclick = () => heartbeat(result.online ? 'offline' : 'online');
-      }
-    } catch {
-      const button = document.getElementById('ake-reception-status');
-      if (button) button.textContent = '接待连接中断 · 正在重试';
-    } finally { running = false; }
+      // The desktop main process owns its lease. Do not acquire a second
+      // browser lease, or pause other instances when toggling the desktop.
+      if (window.akeDesktopReception) {
+        if (state) await window.akeDesktopReception.setOnline(state === 'online');
+        lastState = await window.akeDesktopReception.status();
+      } else lastState = await window.akeApi(account, '/ake_reception/heartbeat', state ? { state } : {});
+      running = false; draw(lastState);
+    } catch { running = false; draw(lastState, true); }
   }
-  heartbeat(); setInterval(() => heartbeat(), 20000);
-  window.addEventListener('online', () => heartbeat());
+  window.addEventListener('ake:workspace-ready', () => lastState ? draw(lastState) : refresh());
+  if (window.akeDesktopReception) window.akeDesktopReception.subscribe(() => refresh());
+  else { setInterval(() => refresh(), 20000); window.addEventListener('online', () => refresh()); }
+  refresh();
 })();

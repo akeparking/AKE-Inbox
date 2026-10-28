@@ -90,3 +90,32 @@ The restored legacy AKE website uses red `#da251d`. Its Chatwoot website channel
 launcher and brand mark follow that color. Use the supplied legacy AKE logo for
 the installation header. The widget footer reads `Powered by AKE Parking` on a
 single line, including at 320px. The Inbox installation title remains `AKE Inbox`.
+
+## Reception and customer chat
+
+The native Chatwoot reception desk retains its light workspace, existing conversation
+columns and Chinese interface. Group channel navigation separately from customer and
+channel settings; keep a clearly labelled online/pause control visible at every width.
+Use white surfaces, slate text, fine gray dividers and the existing AKE red for selected
+navigation. Online status uses restrained green plus text; failure uses amber plus text.
+The separate revenue workbench keeps its dark design above.
+
+Customer-facing chat is English only, independent of the browser and the staff account
+locale. This includes the greeting, pre-chat and offline forms, validation, buttons,
+delivery receipts, loading, error and success states. Staff-facing UI stays Chinese;
+product names and terms such as API, CRM, CAPI and Ads retain their normal spelling.
+Never translate customer messages or change identifiers, submitted field names, routing,
+notification rules, account locales or existing conversations as a localization shortcut.
+
+Customer forms use a compact red brand header, a white body, persistent field labels,
+explicit optional fields, 14px body text and 12px supporting text. Inputs and primary
+actions are at least 44px high. Inline errors are in English, announce failures and keep
+entered values. A disabled sending action prevents duplicate submissions. The success
+state confirms receipt without promising a response time. Existing threads remain
+accessible when the team goes offline. Keep timestamps, sender identity and delivery
+receipts readable without competing with the conversation.
+
+Check the staff desk at 1440px, 1024px and 390px; below 1080px, channel links move into a
+scrollable second row while the reception control stays visible. Check customer chat at
+400px, 390px and 320px, including a Chinese browser locale, keyboard navigation, empty
+and invalid forms, failed/successful submissions, and an existing conversation.

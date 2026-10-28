@@ -62,7 +62,7 @@
     form.hidden = !!selected.legacy;
     $('legacy-mail').hidden = !selected.legacy || !selected.email_inbox_id;
     if(selected.legacy) {
-      $('mail-state').textContent = '原有 AKE Export Email 由管理员独立管理。';
+      $('mail-state').textContent = '原有 AKE 出口业务邮箱由管理员独立管理。';
       $('legacy-mail').href = `/app/accounts/${account}/settings/inboxes/${selected.email_inbox_id}`;
     }
     for (const name of ['imap_address', 'imap_login', 'smtp_address', 'smtp_login', 'smtp_port']) if (selected.email?.[name]) form.elements[name].value = selected.email[name];
