@@ -21,7 +21,17 @@ export function safeUrl(input:string,ads=false){
 }
 export function touch(pageUrl:string,referrer:string,consent:Consent){
   const page=safeUrl(pageUrl),u=new URL(page),refs=safeUrl(referrer),params=u.searchParams,originalParams=new URL(pageUrl).searchParams;
-  return {pageUrl:page,referrer:refs,utm:Object.fromEntries(utms.filter(k=>params.has(k)).map(k=>[k,params.get(k)!.slice(0,160)])),source:params.get('utm_source')?.slice(0,160)||(refs&&new URL(refs).origin!==u.origin?new URL(refs).hostname:'direct'),identifiers:consent.adStorage==='granted'?Object.fromEntries(adKeys.filter(k=>originalParams.has(k)).map(k=>[k,originalParams.get(k)!.slice(0,250)])):{} };
+  const identifiers:Record<string,string>=consent.adStorage==='granted'?Object.fromEntries(adKeys.filter(k=>originalParams.has(k)).map(k=>[k,originalParams.get(k)!.slice(0,250)])):{};
+  const fbclid=originalParams.get('fbclid');
+  // Build fbc only from an observed click ID, at the time it was observed.
+  if(consent.adStorage==='granted'&&fbclid&&/^[A-Za-z0-9_-]{1,500}$/.test(fbclid))identifiers.fbc='fb.1.'+Date.now()+'.'+fbclid;
+  return {pageUrl:page,referrer:refs,utm:Object.fromEntries(utms.filter(k=>params.has(k)).map(k=>[k,params.get(k)!.slice(0,160)])),source:params.get('utm_source')?.slice(0,160)||(refs&&new URL(refs).origin!==u.origin?new URL(refs).hostname:'direct'),identifiers};
+}
+export function marketingAttribution(ids:Record<string,unknown>){
+  const google=adKeys.some(k=>!!ids[k]),meta=!!ids.fbc;
+  // Conflicting platforms are retained for review, never attributed by guesswork.
+  const provider: 'google'|'meta'|'organic'=google&&!meta?'google':meta&&!google?'meta':'organic';
+  return {provider,identifiers:Object.entries(ids).filter(([k])=>adKeys.includes(k)||k==='fbc').map(([k,v])=>({type:(k==='fbc'?'meta_fbc':'google_'+k) as any,value:String(v)}))};
 }
 export function stable(value:any):string{return JSON.stringify(value&&typeof value==='object'?(Array.isArray(value)?value.map(v=>JSON.parse(stable(v))):Object.fromEntries(Object.keys(value).sort().map(k=>[k,JSON.parse(stable(value[k]??null))]))):value??null);}
 export function hash(value:any){return createHash('sha256').update(stable(value)).digest('hex');}

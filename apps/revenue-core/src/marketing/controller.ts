@@ -15,7 +15,7 @@ export class MarketingController {
     for(const [k,v] of this.windows)if(now-v.at>60000)this.windows.delete(k);
     this.windows.set(key,{at:old&&now-old.at<60000?old.at:now,count:old&&now-old.at<60000?old.count+1:1});return origin;
   }
-  @Post('public/session') session(@Body() b:unknown,@Req() req:Request){return this.marketing.session(b,this.origin(req));}
+  @Post('public/session') session(@Body() b:unknown,@Req() req:Request){return this.marketing.session(b,this.origin(req),req.get('user-agent'));}
   @Post('public/events') events(@Body() b:unknown,@Req() req:Request){return this.marketing.events(b,this.origin(req));}
   @Get('public/forms/:site/:id') form(@Param('site') site:string,@Param('id') id:string,@Req() req:Request){return this.marketing.publicForm(site,id,this.origin(req));}
   @Post('public/submissions') submit(@Body() b:unknown,@Req() req:Request){return this.marketing.submit(b,this.origin(req));}

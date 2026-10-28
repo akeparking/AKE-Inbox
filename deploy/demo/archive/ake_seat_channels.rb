@@ -63,7 +63,7 @@ class AkeSeatAssetsController < ActionController::Base
 
   def asset
     name = params[:name]
-    return head :not_found unless %w[ake-seat-channels.js ake-seat-nav.js ake-offline-widget.js ake-conversation-widget.js ake-customers.js ake-api.js ake-marketing.js ake-reception.js].include?(name)
+    return head :not_found unless %w[ake-seat-channels.js ake-seat-nav.js ake-offline-widget.js ake-conversation-widget.js ake-customers.js ake-api.js ake-marketing.js ake-reception.js ake-meta-feedback.js].include?(name)
 
     response.headers['Cache-Control'] = 'no-cache'
     render plain: File.read('/opt/ake-archive/' + name), content_type: 'application/javascript'
