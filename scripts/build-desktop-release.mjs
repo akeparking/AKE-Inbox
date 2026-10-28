@@ -18,7 +18,7 @@ if (html === template) throw new Error('HTML release data placeholder not found'
 await writeFile(join(output, 'index.html'), html);
 await copyFile(join(output, 'index.html'), join(windows, 'index.html'));
 const compatibility = { version: pkg.version, platform: 'win32', arch: 'x64', signed: false, receptionProtocol: 2,
-  minimumReceptionBackend: '0.2.1', legacyClientsSupportedByBackend: true, databaseMigrationRequired: false,
+  minimumReceptionBackend: '0.2.1', legacyClientsSupportedByBackend: true, databaseMigrationRequired: true, desktopDataMigrationRequired: false,
   userDataDirectory: '%APPDATA%/AKE Inbox', heartbeatSeconds: 20, leaseSeconds: 75,
   updateMethod: 'manual-zip', updateRepository: 'akeparking/AKE-Inbox', minimumWindows: 'Windows 10 x64',
   keyLocation: 'office-host-only', channelBindingsReset: false };

@@ -1,7 +1,7 @@
 {
   "name": "ake-inbox-desktop",
   "productName": "AKE Inbox",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Windows reception client for a locally hosted AKE Inbox",
   "private": true,
   "main": "main.cjs",

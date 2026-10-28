@@ -1,7 +1,11 @@
 # Changelog
 
-## Unreleased
+## [0.3.0] - 2026-10-28 (prerelease)
 
+- Integrated the audited desktop/office branch and manual Meta feedback branch without replacing account data, channel bindings or encryption keys.
+- Added an OKKI-inspired charcoal navigation, blue channel states, authenticated customer/inquiry context and consistent marketing navigation. Chinese staff UI and English customer widget remain separate.
+- Added additive Meta feedback and legacy receipt migrations after the existing office reception migration; release version is visible in Core health.
+- Deploy with Mock advertising and disabled OKKI writes. No real Meta acceptance, matching or connected email/WhatsApp acceptance is claimed.
 - Added manual Meta Ads feedback to Inbox: reviewed stage preparation, direct CAPI delivery, durable receipts and duplicate-click protection, with independent Mock/Test/Live modes.
 - Kept website attribution separate from native Instant Form CRM events, added consented Meta click capture and a shared optional Pixel/server Lead event ID.
 - Added local blue-site acceptance tooling; existing Google feedback remains independently configured. No production Meta acceptance or old gateway shutdown is asserted.

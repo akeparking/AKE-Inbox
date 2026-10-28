@@ -6,7 +6,7 @@ export class HealthController {
   @Get("health")
   health() {
     const config = loadConfig();
-    return { status: "ok", service: "ake-revenue-core", store: config.storeDriver, adsMode: config.adsMode, aiAutoSend: false };
+    return { status: "ok", service: "ake-revenue-core", version: require('../package.json').version, store: config.storeDriver, adsMode: config.adsMode, aiAutoSend: false };
   }
 
   @Get("metrics")

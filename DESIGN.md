@@ -96,8 +96,8 @@ single line, including at 320px. The Inbox installation title remains `AKE Inbox
 The native Chatwoot reception desk retains its light workspace, existing conversation
 columns and Chinese interface. Group channel navigation separately from customer and
 channel settings; keep a clearly labelled online/pause control visible at every width.
-Use white surfaces, slate text, fine gray dividers and the existing AKE red for selected
-navigation. Online status uses restrained green plus text; failure uses amber plus text.
+Use white surfaces, slate text, fine gray dividers and blue `#1677ff` for selected
+staff navigation. The customer website widget retains AKE red. Online status uses restrained green plus text; failure uses amber plus text.
 The separate revenue workbench keeps its dark design above.
 
 Customer-facing chat is English only, independent of the browser and the staff account
@@ -119,3 +119,24 @@ Check the staff desk at 1440px, 1024px and 390px; below 1080px, channel links mo
 scrollable second row while the reception control stays visible. Check customer chat at
 400px, 390px and 320px, including a Chinese browser locale, keyboard navigation, empty
 and invalid forms, failed/successful submissions, and an existing conversation.
+
+## Reception v0.3 — reference-based implementation
+
+The user-selected reference is the authenticated OKKI Marketing interface, inspected
+read-only. Adopt its navigation and work hierarchy without copying its branding or data.
+The native reception desk keeps Chatwoot routing, permissions, compose actions and
+presence leases. Its left navigation is charcoal `#252a30`, 220px on desktop, with a
+white conversation list, pale conversation canvas and a customer context rail. Keep
+existing search, assignments, contacts, reports and settings accessible.
+
+Top navigation groups channel filters and reception status. Customer, inquiry and
+Meta feedback destinations stay visible and use the existing authenticated APIs.
+The contextual source panel belongs beside the conversation, with an explicit
+empty state when no trusted attribution exists. Do not infer ad source from names,
+add synthetic leads, fabricate counts or equate API acceptance with matching.
+
+Staff marketing pages use the same dark left navigation and blue active state.
+Below 1080px use the native collapsible sidebar and compact header; below 760px
+keep channel navigation horizontally scrollable and source evidence in a labelled
+collapsible panel. Presence remains visible and keyboard reachable at 320px.
+All customer-facing English localization and red widget styling remain applicable.

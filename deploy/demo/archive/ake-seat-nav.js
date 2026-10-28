@@ -1,5 +1,5 @@
 (() => {
-  let account,loaded=false,marketing=false,shownConversation;
+  let account,loaded=false,marketing=false,shownConversation,contextVersion=0;
   const style=document.createElement('style');style.textContent=`
     body.ake-workspace{--ake-nav-height:60px;padding-top:var(--ake-nav-height);box-sizing:border-box;height:100dvh;overflow:hidden}
     body.ake-workspace #app{height:100%!important;min-height:0}
@@ -38,9 +38,46 @@
     .dark #ake-workspace-nav .ake-nav-links>a:hover,.dark #ake-workspace-nav select:hover{background:#262d35;color:#fff}
     .dark body.ake-workspace .conversation-panel{background:#171b20}
   `;
+  style.textContent+=`
+    #ake-workspace-nav{gap:16px;height:64px;border-color:#e6e9ee}
+    body.ake-workspace{--ake-nav-height:64px}
+    #ake-workspace-nav .ake-brand{color:#fff;background:#252a30;align-self:stretch;margin-left:-20px;padding:0 20px;width:220px;box-sizing:border-box;letter-spacing:1px}
+    #ake-workspace-nav .ake-brand small{display:none}
+    #ake-workspace-nav [aria-current=page]{color:#1677ff!important;background:#eaf3ff!important}
+    #ake-workspace-nav :focus-visible{outline-color:#1677ff}
+    body.ake-workspace aside.ake-native-nav{background:#252a30!important;color:#c5cbd3;border-color:#343b44;--n-background:37 42 48;--n-slate-11:185 193 204;--n-slate-12:245 247 250}
+    body.ake-workspace aside.ake-native-nav a,body.ake-workspace aside.ake-native-nav button{color:inherit}
+    body.ake-workspace aside.ake-native-nav .text-n-slate-12{color:#f0f3f7}
+    body.ake-workspace aside.ake-native-nav a:hover,body.ake-workspace aside.ake-native-nav button:hover{background:#343c46}
+    body.ake-workspace aside.ake-native-nav a.router-link-active{background:#1677ff;color:#fff}
+    body.ake-workspace aside.ake-native-nav .bg-gradient-to-t{background-image:none!important}
+    body.ake-workspace aside.ake-native-nav input{background:#353c45;color:#fff;border-color:#46515e}
+    body.ake-workspace .conversation-panel{background:#f5f7fa}
+    body.ake-workspace .reply-box{border-radius:8px}
+    #ake-source-panel{flex:0 0 300px;width:300px;min-width:0;overflow:auto;border-left:1px solid #e6e9ee;background:#fff;color:#263345;padding:22px 18px;font:13px/1.65 system-ui,sans-serif;box-sizing:border-box}
+    #ake-source-panel h2{font-size:15px;font-weight:650;margin:0 0 16px}
+    #ake-source-panel h3{font-size:13px;font-weight:600;margin:24px 0 10px;border-top:1px solid #edf0f3;padding-top:20px}
+    #ake-source-panel p{margin:6px 0;overflow-wrap:anywhere}
+    #ake-source-panel .ake-context-muted{color:#748294;font-size:12px}
+    #ake-source-panel .ake-context-name{font-size:18px;font-weight:600;margin-bottom:6px}
+    #ake-source-panel .ake-context-link{display:block;color:#1677ff;text-decoration:none;margin-top:12px;min-height:32px}
+    #ake-source-panel button{font:inherit;border:1px solid #dce3eb;border-radius:5px;padding:8px 12px;min-height:40px;background:#fff;color:#355270;cursor:pointer;margin-top:12px}
+    #ake-source-panel button:hover{background:#edf5ff}
+    #ake-source-panel :focus-visible{outline:2px solid #1677ff;outline-offset:2px}
+    #ake-source-panel details>summary{font-weight:650;cursor:pointer;min-height:32px}
+    .ake-context-native #ake-source-panel{width:auto;flex:0 0 auto;max-height:42vh;border-left:0;border-bottom:1px solid #e6e9ee}
+    @media(min-width:1080px){body.ake-workspace aside.ake-native-nav{width:220px!important}body.ake-workspace .conversations-list-wrap{width:286px!important}}
+    @media(max-width:1399px){#ake-source-panel{flex-basis:260px;width:260px;padding:18px 14px}}
+    @media(max-width:1199px){#ake-source-panel{position:fixed;right:16px;bottom:16px;z-index:30;width:280px;max-height:60vh;border:1px solid #dce3eb;border-radius:8px;padding:12px 16px;box-shadow:0 4px 18px #26374714}.ake-context-native #ake-source-panel{position:static;width:auto;max-height:35vh;border-radius:0;box-shadow:none}}
+    @media(max-width:1079px){body.ake-workspace{--ake-nav-height:108px}#ake-workspace-nav{height:108px;gap:0}#ake-workspace-nav .ake-brand{background:transparent;color:#253345;width:auto;margin:0;padding:0}#ake-workspace-nav .ake-secondary{right:205px}#ake-workspace-nav .ake-secondary a{padding:10px 7px;font-size:12px}}
+    @media(min-width:1080px) and (max-width:1230px){#ake-workspace-nav .ake-brand{margin-left:-12px;width:208px;padding-left:20px}#ake-workspace-nav{gap:8px}#ake-workspace-nav .ake-secondary{padding-left:4px}#ake-workspace-nav .ake-secondary a{padding:10px 6px;font-size:12px}}
+    @media(max-width:700px){#ake-source-panel{bottom:12px;right:12px;max-width:calc(100vw - 24px)}#ake-workspace-nav .ake-secondary{position:static}body.ake-workspace aside.ake-native-nav{top:var(--ake-nav-height);height:calc(100dvh - var(--ake-nav-height))}}
+  `;
   document.head.append(style);
   const link=(label,href)=>{const a=document.createElement('a');a.textContent=label;a.href=href;a.dataset.route=new URL(href,location.origin).pathname;return a;};
   function active(){
+    document.querySelector('#app aside')?.classList.add('ake-native-nav');
+    placeContext();
     document.querySelectorAll('#ake-workspace-nav [data-route]').forEach(control=>{
       const path=control.dataset.route;
       let selected=path.endsWith('/dashboard') ? /\/(dashboard|inbox\/all)(\/|$)/.test(location.pathname) : location.pathname===path||location.pathname.startsWith(path+'/');
@@ -58,12 +95,15 @@
   }
   async function attach(){
     const match=location.pathname.match(/^\/app\/accounts\/(\d+)/);
-    if(!match){document.getElementById('ake-workspace-nav')?.remove();document.body.classList.remove('ake-workspace');loaded=false;return;}
+    if(!match){document.getElementById('ake-workspace-nav')?.remove();document.querySelector('#ake-source-panel')?.remove();document.body.classList.remove('ake-workspace');loaded=false;shownConversation=undefined;contextVersion++;return;}
     if(loaded&&account===match[1]){active();void attribution();return;}
     if(!window.akeApi)return;
-    account=match[1];loaded=true;
+    account=match[1];loaded=true;shownConversation=undefined;contextVersion++;
+    document.querySelector('#ake-source-panel')?.remove();
+    const requestedAccount=account;
     try{
       const [inboxes,seats]=await Promise.all([window.akeApi(account,'/inboxes'),window.akeApi(account,'/ake_seats')]);
+      if(requestedAccount!==account)return;
       marketing=seats.marketing_enabled;
       document.getElementById('ake-workspace-nav')?.remove();
       const nav=document.createElement('nav');nav.id='ake-workspace-nav';nav.setAttribute('aria-label','接待工作区');nav.lang='zh-CN';
@@ -83,18 +123,57 @@
       const utilities=[['客户管理',`/ake/customers?account=${account}`],['渠道设置',`/ake/channels?account=${account}`]];
       if(seats.marketing_enabled){utilities.push(['询盘管理',`/ake/marketing?account=${account}`]);if(seats.role==='administrator')utilities.push(['Meta 回传',`/ake/marketing?account=${account}&view=meta_feedback`]);}
       for(const [label,href] of utilities){secondary.append(link(label,href));const mobile=link(label,href);mobile.className='ake-mobile-link';primary.append(mobile);}
-      document.body.append(nav);document.body.classList.add('ake-workspace');document.documentElement.lang='zh-CN';active();window.dispatchEvent(new Event('ake:workspace-ready'));
+      document.body.append(nav);document.body.classList.add('ake-workspace');document.documentElement.lang='zh-CN';active();void attribution();window.dispatchEvent(new Event('ake:workspace-ready'));
     }catch{loaded=false;}
   }
+  function placeContext(){
+    const panel=document.querySelector('#ake-source-panel'),conversation=document.querySelector('.conversation-details-wrap');
+    if(!panel||!conversation)return;
+    const row=conversation.parentElement;
+    const native=[...row.children].find(x=>x!==panel&&x!==conversation&&x.classList.contains('max-w-sm'));
+    document.querySelectorAll('.ake-context-native').forEach(x=>x.classList.remove('ake-context-native'));
+    const host=native||row;
+    if(native)native.classList.add('ake-context-native');
+    if(panel.parentElement!==host){if(native)host.prepend(panel);else host.append(panel);}
+  }
+  const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text)n.textContent=text;if(cls)n.className=cls;return n;};
   async function attribution(){
     const cid=location.pathname.match(/\/conversations\/(\d+)/)?.[1];
-    if(!marketing||cid===shownConversation)return;shownConversation=cid;document.querySelector('#ake-source-panel')?.remove();if(!cid)return;
-    try{const d=await window.akeApi(account,'/ake_marketing/inquiries',{input:{conversationId:Number(cid)}});if(shownConversation!==cid)return;
-      const p=document.createElement('details');p.id='ake-source-panel';p.style.cssText='position:fixed;bottom:16px;right:16px;z-index:80;background:white;color:#253345;border:1px solid #ccd9e5;border-radius:8px;padding:12px;max-width:320px;max-height:65vh;overflow:auto;font:13px/1.5 system-ui;box-shadow:0 4px 20px #26374720';
-      const summary=document.createElement('summary');summary.textContent='网站来源与轨迹 · '+d.inquiries.length+' 条询盘';p.append(summary);
-      for(const i of d.inquiries){const row=document.createElement('p'),a=document.createElement('a');row.textContent='首次：'+(i.first_touch?.source||'覆盖未知')+' · 本次：'+(i.current_touch?.source||'覆盖未知')+' · '+new Date(i.created_at).toLocaleString('zh-CN');a.textContent='查看访问时间线、关联依据与纠正';a.href='/ake/marketing?account='+account+'&inquiry='+i.id;row.append(document.createElement('br'),a);p.append(row);}
-      if(!d.inquiries.length){const text=document.createElement('p');text.textContent='暂无可信网站关联。历史覆盖未知。';p.append(text);}document.body.append(p);
-    }catch{shownConversation=undefined;}
+    if(cid===shownConversation&&(!cid||document.querySelector('#ake-source-panel')))return;shownConversation=cid;const version=++contextVersion;
+    document.querySelector('#ake-source-panel')?.remove();if(!cid)return;
+    const p=node('aside');p.id='ake-source-panel';p.setAttribute('aria-label','客户与询盘概览');
+    const details=node('details');details.open=innerWidth>=1200;details.append(node('summary','客户与询盘'));p.append(details);document.body.append(p);placeContext();
+    const content=node('div');content.append(node('p','正在读取客户资料…','ake-context-muted'));details.append(content);
+    try{
+      const conversation=await window.akeApi(account,'/conversations/'+cid);
+      if(version!==contextVersion)return;
+      const customer=conversation.meta?.sender||{};
+      content.replaceChildren(node('h3','客户概览'),node('p',customer.name||'未填写姓名','ake-context-name'));
+      for(const value of [customer.additional_attributes?.company_name,customer.email,customer.phone_number])if(value)content.append(node('p',value));
+      if(!customer.email&&!customer.phone_number)content.append(node('p','尚未提供联系方式','ake-context-muted'));
+      const more=node('button','查看 / 编辑客户资料');more.type='button';more.onclick=()=>{
+        const native=document.querySelector('.ake-context-native');
+        if(native)native.querySelector(':scope > div button')?.focus();
+        else document.querySelector('.conversation-details-wrap .i-ph-user-bold')?.closest('button')?.click();
+      };content.append(more);
+      content.append(node('h3','询盘与来源'));
+      if(!marketing){content.append(node('p','询盘管理尚未启用。','ake-context-muted'));return;}
+      const d=await window.akeApi(account,'/ake_marketing/inquiries',{input:{conversationId:Number(cid)}});
+      if(version!==contextVersion)return;
+      for(const i of d.inquiries){
+        content.append(node('p',i.qualified_at?'已确认有效线索':'待人工核验'));
+        content.append(node('p','首次来源：'+(i.first_touch?.source||'覆盖未知'),'ake-context-muted'),node('p','本次来源：'+(i.current_touch?.source||'覆盖未知'),'ake-context-muted'));
+        const a=link('查看询盘、访问轨迹与回传',`/ake/marketing?account=${account}&inquiry=${encodeURIComponent(i.id)}`);a.className='ake-context-link';content.append(a);
+      }
+      if(!d.inquiries.length)content.append(node('p','此会话暂无关联询盘。','ake-context-muted'),node('p','历史访问来源覆盖未知，不自动推断广告归因。','ake-context-muted'));
+      const all=link('打开询盘管理',`/ake/marketing?account=${account}&view=inquiries`);all.className='ake-context-link';content.append(all);
+    }catch{
+      if(version!==contextVersion)return;
+      const error=node('p','客户或询盘资料暂时无法读取。','ake-context-muted');error.setAttribute('role','alert');content.append(error);
+      const retry=node('button','重新读取');retry.type='button';retry.onclick=()=>{shownConversation=undefined;void attribution();};content.append(retry);
+    }
   }
+  const wideContext=matchMedia('(min-width:1200px)');
+  wideContext.addEventListener('change',()=>{const details=document.querySelector('#ake-source-panel>details');if(details)details.open=wideContext.matches;});
   attach();setInterval(attach,3000);
 })();

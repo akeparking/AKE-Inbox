@@ -42,7 +42,7 @@ Meta 当前 Using the API 文档明确说明，带 `test_event_code` 的事件�
 
 标记为虚构测试的询盘不能进入 Test 或 Live，只能 Mock。真实客户的受控 Test Events 验收使用真实客户记录和真实业务事件，不修改旧时间，也不把蓝色官网测试资料发到 Meta。
 
-运行迁移、构建后按现有部署方式加载 Core 和 Chatwoot 扩展。新增迁移为 `007_meta_feedback.sql`，不修改原询盘和 Google 回执。
+运行迁移、构建后按现有部署方式加载 Core 和 Chatwoot 扩展。新增迁移为 `008_meta_feedback.sql` 和 `009_meta_legacy_receipts.sql`，不修改原询盘和 Google 回执。
 
 新增原生认证操作：`meta_feedback`（查看）、`meta_prepare`（准备）、`meta_send`（发送），沿用 `/ake_marketing/:operation` 与管理员权限。浏览器不接触 Meta 令牌。不得直接向公网暴露内部 `marketing/native` 接口。
 
