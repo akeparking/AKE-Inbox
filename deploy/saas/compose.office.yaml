@@ -76,7 +76,9 @@ services:
     mem_limit: 192m
     depends_on:
       migrate: {condition: service_completed_successfully}
-  web:
+  # This service joins the office ingress network. Its service name is also a
+  # DNS alias, so it must not shadow the office's native "web" service.
+  saas-web:
     <<: *node
     working_dir: /app
     command: [apps/workspace-web/server.js]
