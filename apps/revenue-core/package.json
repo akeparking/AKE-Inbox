@@ -1,6 +1,6 @@
 {
   "name": "@ake/revenue-core",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "private": true,
   "type": "commonjs",
   "main": "dist/main.js",
@@ -16,7 +16,7 @@
     "test": "vitest run src"
   },
   "dependencies": {
-    "@ake/contracts": "0.4.2",
+    "@ake/contracts": "0.4.3",
     "@nestjs/common": "11.2.7",
     "@nestjs/config": "4.0.4",
     "@nestjs/core": "11.2.7",

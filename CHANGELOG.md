@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.4.3 — 2026-10-29
+
+- 整合 v0.4.2 审查修复，增加真实平台配置和验证状态展示。
+- Meta 官方广告数据同步、带切换时间和去重的原生表单定时收件；原生表单 CRM 阶段保持正确来源语义。
+- Google Ads 移除已停用的 developer token 门槛；Data Manager 增加租户内持久 OAuth 刷新。Google Ads 新增授权按用户要求保留待验收。
+- AI 支持 Anthropic 兼容协议，记录实际返回模型；真实摘要、字段建议、翻译和草稿保持人工确认边界。
+- 新增迁移 011；升级保留原有询盘、审计、回传回执和原生渠道配置。详见 `docs/LIVE_INTEGRATIONS.md`。
+
+
 ## v0.4.2 — 2026-10-29
 
 - Preserve v0.4.0 tenant Inbox/CRM, quote history, outcomes, advertising reports, AI and desktop routing.

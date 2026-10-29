@@ -9,7 +9,7 @@ Self-hosted B2B inquiry operations: connect conversations, reviewed customer req
 
 [版本与源码下载](https://github.com/akeparking/AKE-Inbox/releases) · [架构](docs/ARCHITECTURE.md) · [功能边界](docs/FEATURE_STATUS.md) · [路线图与竞品](docs/ROADMAP.md) · [贡献](CONTRIBUTING.md) · [安全](SECURITY.md)
 
-> **当前正式版本为 v0.4.2 Inbox＋CRM 多租户修复版。** 保留 v0.4.0 的组织隔离、客户与商机、跟进、报价版本、成交归因及独立回传账本，并合入五项并发、归因、同意与 Meta 回执修复。办公室入口为 `/sales/saas`，完整范围与升级方法见[版本报告](docs/RELEASE_REPORT_v0.4.2.md)及[部署手册](deploy/saas/README.md)。广告保持 Mock；真实平台、外部公司试点和新一轮 Windows 长时运行分别验收。
+> **当前正式版本为 v0.4.3 Inbox＋CRM 真实集成版。** 保留多租户 CRM 和 v0.4.2 的五项审查修复，增加 Meta 官方广告读数、原生表单定时收件、Google OAuth 持久刷新及 Anthropic 兼容 AI。办公室入口为 `/sales/saas`，范围与升级方法见[版本报告](docs/RELEASE_REPORT_v0.4.3.md)、[真实集成说明](docs/LIVE_INTEGRATIONS.md)及[部署手册](deploy/saas/README.md)。源码默认 Mock；获授权部署的实际启用状态单独记录。Google Ads 数据授权、正式转化匹配和外部公司试点仍有待验收项。
 
 ## 解决什么问题
 
@@ -19,7 +19,7 @@ Self-hosted B2B inquiry operations: connect conversations, reviewed customer req
 
 **接收询盘 → 保留原始证据 → AI 提取需求 → 人工确认 → 线索/客户/商机 → 跟进与阶段 → 可核对的回传记录。**
 
-初始场景使用停车设备项目演示，但业务层按 B2B 长周期采购设计：公司、联系人、询盘和商机应分别建模；同一联系人不等于同一公司，一家公司也可能有多个项目。完整公司级自有 CRM 仍在路线图中。
+初始场景使用停车设备项目演示，业务层按 B2B 长周期采购设计：公司、联系人、询盘和商机分别建模；同一联系人不等于同一公司，一家公司可有多个项目。自有 CRM 已覆盖跟进、报价版本和成交事实，采购、库存及财务后置。
 
 ## 当前源码包含的功能
 
@@ -31,7 +31,7 @@ Self-hosted B2B inquiry operations: connect conversations, reviewed customer req
 | WhatsApp 适配 | WAHA 接入保护、附件与消息回执、发送权控制；保留旧 Evolution 适配 | 不附带号码或登录会话；真实收发、重连和升级需独立验收 |
 | AI 需求辅助 | 项目字段、意向建议、摘要与原文证据；人工确认后写入 | 默认 Mock；知识库和模型凭据不随源码分发 |
 | 接待自动化 | 接管/恢复、退订/屏蔽、取消待执行任务、受控跟进 | 外发默认关闭；时区未知转内部提醒；商业承诺需人工 |
-| CRM 工作流 | Lead、商机 Kanban、阶段版本检查、人工 Qualified、审计与幂等事件 | 演示级销售流程，非完整 ERP 或成熟多租户 CRM |
+| CRM 工作流 | 租户隔离的客户、联系人、Lead、商机 Kanban、跟进、报价版本、成交、人工 Qualified、审计与幂等事件 | 新业务独立管理；完整 ERP 与外部公司试点未交付 |
 | OKKI 连接器 | 读取字段/枚举、关联档案、受控线索/客户/跟进/商机写入和回读 | 写入默认关闭；需账户权限和租户映射；完整双向同步尚未交付 |
 | 网站询盘与归因 | 同意状态、访客/访次/来源、表单收件、WordPress 持久投递与重试 | 不将点击等同有效询盘；实际网站 CMP/缓存配置需验收 |
 | 转化账本 | 区分校验、受理、处理、匹配；Meta/Google 适配与防重逻辑 | 默认 Mock；真实平台接入、匹配和广告效果不作完成声明 |
