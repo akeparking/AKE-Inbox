@@ -217,6 +217,7 @@ export const modules = () => ({
       .TenantsService,
   AdsService: require("../../apps/revenue-core/dist/saas/ads.service.js")
     .AdsService,
+  MetaLeadsService: require("../../apps/revenue-core/dist/saas/meta-leads.service.js").MetaLeadsService,
   FeedbackService:
     require("../../apps/revenue-core/dist/saas/feedback.service.js")
       .FeedbackService,

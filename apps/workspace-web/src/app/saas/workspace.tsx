@@ -292,6 +292,7 @@ export default function SaasWorkspace() {
     [runs, setRuns] = useState<Row[]>([]),
     [report, setReport] = useState<Row | null>(null),
     [health, setHealth] = useState<Row | null>(null),
+    [integrations, setIntegrations] = useState<Row | null>(null),
     [channels, setChannels] = useState<Row | null>(null),
     [knowledge, setKnowledge] = useState<Row[]>([]),
     [feedback, setFeedback] = useState<Row[]>([]),
@@ -386,15 +387,17 @@ export default function SaasWorkspace() {
         if (ticket === sequence.current) setReport(r);
       }
       if (tab === "settings") {
-        const [c, h, k] = await Promise.all([
+        const [c, h, k, i] = await Promise.all([
           api("channels"),
           api("health"),
           api("records/knowledge"),
+          admin ? api("integrations") : Promise.resolve(null),
         ]);
         if (ticket === sequence.current) {
           setChannels(c);
           setHealth(h);
           setKnowledge(k.items);
+          setIntegrations(i);
         }
       }
       if (selected && tab === "inbox")
@@ -589,6 +592,7 @@ export default function SaasWorkspace() {
           options: [
             { value: "mock", label: "Mock 测试" },
             { value: "openai-compatible", label: "OpenAI 兼容 API" },
+            { value: "anthropic-compatible", label: "Anthropic 兼容 API" },
           ],
         },
         {
@@ -599,12 +603,32 @@ export default function SaasWorkspace() {
         },
         { key: "model", label: "模型名称" },
         { key: "apiKey", label: "API 密钥", type: "password" },
+        { key: "disableThinking", label: "关闭模型扩展思考", type: "checkbox" },
       ],
       save: (v) =>
         api(
           "integrations/model",
           Object.fromEntries(Object.entries(v).filter(([, v]) => v !== null)),
         ),
+    });
+  }
+  function configureMetaLeads() {
+    setModal({
+      title: "Meta 原生表单收件",
+      description: "每 5 分钟从官方 API 接收启用后的新询盘。已有询盘按平台 ID 去重，广告数据同意状态仍需独立确认。此入口配置一个主页；多主页可通过管理 API 配置。",
+      fields: [
+        { key: "pageId", label: "主页 ID", required: true },
+        { key: "accountId", label: "广告账户 ID（数字）", required: true },
+        { key: "apiVersion", label: "Graph API 版本", required: true },
+        { key: "accessToken", label: "主页访问令牌", type: "password", required: true },
+        { key: "formIds", label: "表单 ID（逗号分隔，留空接收所有启用表单）" },
+        { key: "pollingEnabled", label: "启用定时收件", type: "checkbox", value: true },
+      ],
+      save: (v) => api("integrations/metaLeads", {
+        pollingEnabled: v.pollingEnabled,
+        pages: [{ pageId: v.pageId, accountId: v.accountId, apiVersion: v.apiVersion, accessToken: v.accessToken,
+          formIds: String(v.formIds || "").split(/[,，\s]+/).filter(Boolean) }],
+      }),
     });
   }
   function configureFeedback(provider: string) {
@@ -654,9 +678,11 @@ export default function SaasWorkspace() {
               },
               {
                 key: "wonConversionActionId",
-                label: "赢单转化动作 ID",
-                required: true,
+                label: "赢单转化动作 ID（可稍后配置）",
               },
+              { key: "refreshToken", label: "OAuth 刷新令牌", type: "password" },
+              { key: "clientId", label: "OAuth 客户端 ID" },
+              { key: "clientSecret", label: "OAuth 客户端密钥", type: "password" },
               {
                 key: "validateOnly",
                 label: "只校验，不正式上传",
@@ -670,7 +696,7 @@ export default function SaasWorkspace() {
         return api("integrations/feedback", {
           mode,
           enabled,
-          [provider]: config,
+          [provider]: Object.fromEntries(Object.entries(config).filter(([, value]) => value !== null && value !== "")),
         });
       },
     });
@@ -888,18 +914,22 @@ export default function SaasWorkspace() {
           type: "password",
           required: true,
         },
-        { key: "developerToken", label: "Google 开发者令牌", type: "password" },
+        { key: "refreshToken", label: "Google OAuth 刷新令牌", type: "password" },
+        { key: "clientId", label: "Google OAuth 客户端 ID" },
+        { key: "clientSecret", label: "Google OAuth 客户端密钥", type: "password" },
         { key: "loginCustomerId", label: "Google 管理账户 ID" },
         { key: "enabled", label: "启用每小时同步", type: "checkbox" },
       ],
       save: (v) => {
-        const { accessToken, developerToken, loginCustomerId, ...rest } = v;
+        const { accessToken, refreshToken, clientId, clientSecret, loginCustomerId, ...rest } = v;
         return api("ad-connections", {
           ...rest,
           conversionMetric: rest.conversionMetric || "",
           credentials: {
             accessToken,
-            ...(developerToken ? { developerToken } : {}),
+            ...(refreshToken ? { refreshToken } : {}),
+            ...(clientId ? { clientId } : {}),
+            ...(clientSecret ? { clientSecret } : {}),
             ...(loginCustomerId ? { loginCustomerId } : {}),
           },
         });
@@ -2244,6 +2274,7 @@ export default function SaasWorkspace() {
                 </p>
                 <div className="sx-actions">
                   <button onClick={configureModel}>AI 模型</button>
+                  <button onClick={configureMetaLeads}>Meta 表单收件</button>
                   <button onClick={() => configureFeedback("meta")}>
                     Meta 回传
                   </button>
@@ -2251,6 +2282,16 @@ export default function SaasWorkspace() {
                     Google 回传
                   </button>
                 </div>
+                {integrations && <div className="sx-list">
+                  <p>AI：{integrations.model.provider === "mock" ? "Mock 测试" : integrations.model.provider} · {integrations.model.model || "未配置模型"}</p>
+                  <p>Meta 表单：{integrations.metaLeadIntake.pollingEnabled ? "定时收件已启用" : "定时收件未启用"} · {integrations.metaLeadIntake.signedWebhookConfigured ? "签名 Webhook 已配置" : "未配置签名 Webhook"}</p>
+                  <p>Google 回传：{integrations.feedback.google ? (integrations.feedback.googleValidateOnly ? "仅校验" : "允许人工确认后上传") : "未配置"} · 广告报表连接请在营销页查看</p>
+                  {integrations.metaLeadIntake.recentRuns.map((r: Row) => <div className="sx-task-row" key={r.id}>
+                    <span>Meta 收件同步 <small>{new Date(r.started_at).toLocaleString("zh-CN")} · 新收件 {r.received_count}</small></span>
+                    <Badge value={r.state === "complete" ? "完成" : "失败"} />
+                    {r.error_code && <span className="sx-error">{r.error_code}</span>}
+                  </div>)}
+                </div>}
               </section>
             )}
             <section className="sx-section">

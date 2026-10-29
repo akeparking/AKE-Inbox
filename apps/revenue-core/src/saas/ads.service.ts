@@ -8,6 +8,7 @@ import { randomUUID } from "node:crypto";
 import { adConnectionSchema, type AdMetricRow } from "@ake/contracts";
 import { currentTenant } from "./context";
 import { TenantsService } from "./tenants.service";
+import { refreshGoogleToken, GoogleOAuthError } from "./google-oauth";
 
 export class AdsReadError extends Error {
   constructor(readonly code: string) {
@@ -100,12 +101,6 @@ export class AdsService {
     this.tenants.requireRole("admin");
     const v = adConnectionSchema.parse(body),
       a = currentTenant();
-    if (
-      v.provider === "google" &&
-      !v.credentials.developerToken &&
-      v.mode === "live"
-    )
-      throw new BadRequestException("google_developer_token_required");
     const count = Number(
       (
         await this.tenants.db.query(
@@ -236,22 +231,8 @@ export class AdsService {
       credentials.clientId &&
       credentials.clientSecret
     ) {
-      const refreshed = await fetch("https://oauth2.googleapis.com/token", {
-        method: "POST",
-        redirect: "error",
-        signal: AbortSignal.timeout(15000),
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          grant_type: "refresh_token",
-          refresh_token: credentials.refreshToken,
-          client_id: credentials.clientId,
-          client_secret: credentials.clientSecret,
-        }),
-      });
-      if (!refreshed.ok) throw new AdsReadError("authorization_revoked");
-      const data: any = await refreshed.json();
-      if (!data.access_token) throw new AdsReadError("authorization_revoked");
-      credentials.accessToken = data.access_token;
+      try { Object.assign(credentials, await refreshGoogleToken(credentials)); }
+      catch (e) { throw new AdsReadError(e instanceof GoogleOAuthError ? e.code : "google_refresh_unavailable"); }
       await this.tenants.db.query(
         "UPDATE ad_connections SET credentials=$3 WHERE workspace_id=$1 AND id=$2",
         [
@@ -296,7 +277,6 @@ export class AdsService {
       authorization: "Bearer " + k.accessToken,
       ...(c.provider === "google"
         ? {
-            "developer-token": k.developerToken,
             ...(k.loginCustomerId
               ? { "login-customer-id": k.loginCustomerId }
               : {}),
