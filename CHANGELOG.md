@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.4.0] - 2026-10-29 (prerelease)
+## [0.4.0] - 2026-10-29
 
 - Extended the deployed v0.3.0 baseline with tenant-scoped companies, contacts, independent inquiry qualification, multiple projects, follow-ups, quote revisions and auditable outcomes.
 - Added verified personal sessions, organization membership, forced row security, tenant settings and isolated AI suggestions.

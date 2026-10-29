@@ -6,6 +6,26 @@ Each subsequent release uses a new semantic-version tag (`vMAJOR.MINOR.PATCH`) a
 
 **Never overwrite, move or delete an existing release tag or its source assets.** Mainline development continues through new commits; fixes receive new tags. Protect `v*` tags against update/deletion in repository rules. Never use force-push for a published release. Keep CHANGELOG entries and migration instructions for each version.
 
+## Incremental release acceptance
+
+The project owner confirmed on 2026-10-29 that v0.2.0's core business flow had
+already been exercised. Routine increments inherit that accepted baseline and
+verify the changed behavior and affected paths. Repeat broader checks when a
+change, failure or unresolved concern justifies them. A fresh Windows physical
+run and eight-hour observation are not automatic blockers for every increment.
+Do not relabel an unexecuted check as passed.
+
+Continue publishing the complete tagged source, current client and release
+report. Keep feature configuration and external-provider acceptance explicit:
+promoting a release does not enable Meta Live, connect a channel, or prove a
+provider receipt. Reserve prereleases for explicitly experimental scope or a
+concrete unresolved issue that prevents the intended use.
+
+A prerelease may be promoted by editing GitHub Release status, title and notes
+without moving its tag or replacing assets. Record the promotion date and basis.
+Archived reports retain their original publication-time status; the updated
+Release notes explain the current status.
+
 Before publishing:
 
 1. Review the worktree and full intended file manifest; exclude runtime secrets and customer data.
