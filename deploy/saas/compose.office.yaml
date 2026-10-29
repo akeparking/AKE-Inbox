@@ -1,0 +1,104 @@
+# Install alongside an existing office. Runtime bundle is built with /sales.
+name: ake-inbox-saas
+x-node: &node
+  image: ${SAAS_NODE_IMAGE:?Use a verified Node 24 image}
+  entrypoint: [node]
+  user: node
+  read_only: true
+  tmpfs: [/tmp]
+  restart: unless-stopped
+  logging: {driver: json-file, options: {max-size: 5m, max-file: '2'}}
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    env_file: ${SAAS_PRIVATE_DIR}/postgres.env
+    volumes:
+      - data:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/10-runtime.sh:ro
+    networks: [business]
+    mem_limit: 384m
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, pg_isready, -U, postgres, -d, inbox_saas]
+      interval: 3s
+      retries: 30
+  migrate:
+    <<: *node
+    restart: 'no'
+    entrypoint: [sh, -c]
+    working_dir: /app
+    env_file: ${SAAS_PRIVATE_DIR}/owner.env
+    volumes:
+      - ${SAAS_BUNDLE}/core:/app:ro
+    environment: {SAAS_RLS_FILE: /app/deploy/saas/enable-rls.sql}
+    command: ['node apps/revenue-core/dist/database/migrate.js && node deploy/saas/finish-schema.cjs']
+    networks: [business]
+    depends_on:
+      db: {condition: service_healthy}
+  api:
+    <<: *node
+    working_dir: /app
+    command: [apps/revenue-core/dist/main.js]
+    env_file: ${SAAS_PRIVATE_DIR}/runtime.env
+    volumes: ['${SAAS_BUNDLE}/core:/app:ro']
+    environment:
+      SAAS_MODE: 'true'
+      NODE_ENV: production
+      STORE_DRIVER: postgres
+      PORT: '4100'
+      SAAS_WORKER_ENABLED: 'false'
+      INBOX_V2_ENABLED: 'false'
+      MARKETING_ENABLED: 'false'
+      DEMO_SEED: 'false'
+    networks: [business, outbound]
+    mem_limit: 256m
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:4100/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      retries: 6
+  worker:
+    <<: *node
+    working_dir: /app
+    command: [apps/revenue-core/dist/worker.js]
+    env_file: ${SAAS_PRIVATE_DIR}/runtime.env
+    volumes: ['${SAAS_BUNDLE}/core:/app:ro']
+    environment:
+      SAAS_MODE: 'true'
+      NODE_ENV: production
+      STORE_DRIVER: postgres
+      SAAS_WORKER_ENABLED: 'true'
+      INBOX_V2_ENABLED: 'false'
+      MARKETING_ENABLED: 'false'
+      DEMO_SEED: 'false'
+    networks: [business, outbound]
+    mem_limit: 192m
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+  # This service joins the office ingress network. Its service name is also a
+  # DNS alias, so it must not shadow the office's native "web" service.
+  saas-web:
+    <<: *node
+    working_dir: /app
+    command: [apps/workspace-web/server.js]
+    env_file: ${SAAS_PRIVATE_DIR}/web.env
+    volumes: ['${SAAS_BUNDLE}/web:/app:ro']
+    environment:
+      SAAS_MODE: 'true'
+      SERVER_API_URL: http://api:4100
+      HOSTNAME: 0.0.0.0
+      PORT: '3000'
+    ports: ['127.0.0.1:${SAAS_WEB_PORT:-14930}:3000']
+    networks:
+      business: {}
+      office-ingress: {aliases: [saas-workspace]}
+    mem_limit: 256m
+    depends_on:
+      api: {condition: service_healthy}
+networks:
+  business: {internal: true}
+  outbound: {}
+  office-ingress: {external: true, name: '${SAAS_OFFICE_NETWORK:-ake-inbox-office_local-ui}'}
+volumes:
+  data:

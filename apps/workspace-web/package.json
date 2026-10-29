@@ -1,6 +1,6 @@
 {
   "name": "@ake/workspace-web",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "scripts": {
     "dev": "next dev --hostname 0.0.0.0 --port 3000",
@@ -10,7 +10,7 @@
     "test": "vitest run src"
   },
   "dependencies": {
-    "@ake/contracts": "0.3.0",
+    "@ake/contracts": "0.4.0",
     "@fontsource/noto-sans-sc": "5.3.0",
     "@phosphor-icons/react": "2.1.10",
     "next": "16.4.2",

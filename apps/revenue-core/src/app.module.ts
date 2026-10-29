@@ -1,5 +1,18 @@
 import { Module } from "@nestjs/common";
-import { APP_GUARD } from "@nestjs/core";
+import { APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core";
+import { SaasController } from './saas/controller';
+import { TenantsService } from './saas/tenants.service';
+import { SaasCrmService } from './saas/crm.service';
+import { IntakeService } from './saas/intake.service';
+import { ConversationsService } from './saas/conversations.service';
+import { SaasAiService } from './saas/ai.service';
+import { AdsService } from './saas/ads.service';
+import { ReportsService } from './saas/reports.service';
+import { SaasWorker } from './saas/worker';
+import { FeedbackService } from './saas/feedback.service';
+import { SaasSettingsService } from './saas/settings.service';
+import { MetaLeadsService } from './saas/meta-leads.service';
+import { SaasGuard, TenantInterceptor } from './saas/auth';
 import { ApiKeyGuard } from "./common/api-key.guard";
 import { ConversionController } from "./conversion/conversion.controller";
 import { ConversionQueueService } from "./conversion/conversion-queue.service";
@@ -31,6 +44,7 @@ import { MarketingController } from './marketing/controller';
 
 @Module({
   controllers: [
+    SaasController,
     MarketingController,
     InboxV2Controller,
     InboxController,
@@ -45,6 +59,7 @@ import { MarketingController } from './marketing/controller';
     RequirementsController,
   ],
   providers: [
+    TenantsService, SaasCrmService, IntakeService, ConversationsService, SaasAiService, AdsService, ReportsService, SaasWorker, FeedbackService, SaasSettingsService, MetaLeadsService,
     MarketingService,
     InboxRepository, InboxAutomation, Chatwoot, OkkiWriter, InboxExports,
     InboxService,
@@ -57,6 +72,8 @@ import { MarketingController } from './marketing/controller';
     DemoSeeder,
     RequirementsService,
     { provide: APP_GUARD, useClass: ApiKeyGuard },
+    { provide: APP_GUARD, useClass: SaasGuard },
+    { provide: APP_INTERCEPTOR, useClass: TenantInterceptor },
   ],
   exports: [ConversionService, IngestionService, revenueStoreProvider],
 })

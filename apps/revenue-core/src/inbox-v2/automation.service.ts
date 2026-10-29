@@ -387,6 +387,6 @@ export class InboxAutomation implements OnApplicationBootstrap, OnModuleDestroy 
       }
     }finally{this.busy.delete(lane);}
   }
-  onApplicationBootstrap(){if(config().enabled){this.timer=setInterval(()=>{for(const lane of ['model','crm','effects','maintenance','reception'])void this.tick(lane).catch(()=>undefined);},1000);this.timer.unref();}}
+  onApplicationBootstrap(){if(process.env.SAAS_MODE!=='true'&&config().enabled){this.timer=setInterval(()=>{for(const lane of ['model','crm','effects','maintenance','reception'])void this.tick(lane).catch(()=>undefined);},1000);this.timer.unref();}}
   onModuleDestroy(){if(this.timer)clearInterval(this.timer);}
 }

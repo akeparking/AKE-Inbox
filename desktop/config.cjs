@@ -18,4 +18,10 @@ function settings(input) {
 function sameOrigin(target, expected) {
   try { return new URL(target).origin === new URL(expected).origin; } catch { return false; }
 }
-module.exports = { endpoint, settings, sameOrigin };
+function crmWorkspaceTarget(target, workspaceUrl) {
+  try {
+    const url = new URL(endpoint(target));
+    return sameOrigin(url.href, workspaceUrl) && url.pathname === '/sales/saas' ? url.href : null;
+  } catch { return null; }
+}
+module.exports = { endpoint, settings, sameOrigin, crmWorkspaceTarget };

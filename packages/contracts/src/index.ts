@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { QualificationAnalysis, QualificationFields } from "./workflow";
 export * from "./workflow";
+export * from "./saas";
 export * from "./demo-fixtures";
 
 export const providers = ["meta", "google", "organic", "manual"] as const;
