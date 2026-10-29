@@ -1,0 +1,69 @@
+{
+  "version": "0.4.3",
+  "status": "v0.4.3 正式增量版 · WSL 与 VPS 已更新",
+  "releaseDate": "2026-10-29",
+  "checks": [
+    {
+      "name": "本地自动化",
+      "result": "216/216",
+      "scope": "Core 121、SaaS 26、桌面 26及相关契约、渠道和保护测试",
+      "passed": true
+    },
+    {
+      "name": "VPS 隔离 SaaS",
+      "result": "26/26",
+      "scope": "独立数据库及虚构外部服务；不复制正式业务库",
+      "passed": true
+    },
+    {
+      "name": "浏览器流程",
+      "result": "本地 15/15；公网 11/11",
+      "scope": "本地虚构销售全流程含真实 AI，公网为只读回归",
+      "passed": true
+    },
+    {
+      "name": "公网与原生保护",
+      "result": "API 13/13；WebSocket 101；Ruby 17/17",
+      "scope": "原生部署文件一致，保留渠道进程",
+      "passed": true
+    },
+    {
+      "name": "备份恢复与迁移",
+      "result": "通过",
+      "scope": "恢复副本迁移后 71 张原业务表计数不变，租户权限和加密配置可用",
+      "passed": true
+    },
+    {
+      "name": "Meta 与 AI",
+      "result": "官方读取及真实模型通过",
+      "scope": "真实 Meta 同步与轮询；AI 建议仍需人工确认",
+      "passed": true
+    },
+    {
+      "name": "Google Data Manager",
+      "result": "HTTP 200，仅验证",
+      "scope": "OAuth 过期刷新与加密保存通过；正式上传和赢单目标未验收",
+      "passed": true
+    },
+    {
+      "name": "Google Ads 与真实新线索回传",
+      "result": "待验收",
+      "scope": "用户暂缓 Google 本人验证；没有伪造询盘、同意或转化",
+      "passed": false
+    },
+    {
+      "name": "Windows 实机与外部公司试点",
+      "result": "本次未执行",
+      "scope": "不将历史基线冒充本轮新执行的检查",
+      "passed": false
+    }
+  ],
+  "testsPassed": 216,
+  "rubyGuardsPassed": 17,
+  "vpsSaasPassed": 26,
+  "physicalWindows": false,
+  "formalConversionUploads": 0,
+  "googleAdsAcceptance": "pending-user-verification",
+  "migrationFromV040": true,
+  "migration": "011_live_integrations.sql"
+}

@@ -19,6 +19,7 @@ import {
   AdapterError,
 } from "../conversion/adapters";
 import { loadConfig } from "../config";
+import { googleFeedbackCredentials } from "./google-oauth";
 
 /** A durable send intent precedes every outbound request. Unknown results require reconciliation. */
 @Injectable()
@@ -188,6 +189,7 @@ export class FeedbackService {
       )
         throw new BadRequestException("meta_destination_required");
       if (provider === "google") {
+        Object.assign(adapterConfig.google, await googleFeedbackCredentials(this.tenants));
         adapterConfig.google.conversionActionId =
           kind === "won"
             ? config.google?.wonConversionActionId
@@ -210,7 +212,6 @@ export class FeedbackService {
         ? { mode: "mock", kind, eventKey: event.key }
         : adapter.buildQualifiedPayload(context);
     if (event.mode === "live" && provider === "meta") {
-      payload.data[0].action_source = "other";
       if (kind === "won") {
         payload.data[0].event_name = "Purchase";
         payload.data[0].custom_data = {
@@ -379,7 +380,7 @@ export class FeedbackService {
       "UPDATE crm_feedback_attempts SET state='review',error_code='INTERRUPTED_OUTCOME_UNKNOWN' WHERE workspace_id=$1 AND state='dispatching' AND updated_at<now()-interval '2 minutes'",
       [a.workspaceId],
     );
-    const google = (await this.tenants.secretSettings()).feedback?.google;
+    let google = (await this.tenants.secretSettings()).feedback?.google;
     if (!google?.accessToken) return;
     const rows = (
       await this.tenants.db.query(
@@ -387,6 +388,8 @@ export class FeedbackService {
         [a.workspaceId],
       )
     ).rows;
+    if (!rows.length) return;
+    google = await googleFeedbackCredentials(this.tenants);
     for (const row of rows) {
       const config = loadConfig();
       config.google = {

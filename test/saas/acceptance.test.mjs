@@ -552,6 +552,76 @@ test("isolated PostgreSQL SaaS acceptance", async (t) => {
         );
       },
     );
+    await t.test("Google refresh persists encrypted credentials before validation and stays tenant scoped", async () => {
+      await ok("integrations/feedback", ta, { mode: "live", enabled: true, google: { accessToken: "expired-fixture", adsAccountId: "123456", conversionActionId: "654321", validateOnly: true, refreshToken: "fixture-refresh", clientId: "fixture-client", clientSecret: "fixture-secret" } });
+      const body = inquiry({ eventId: "google-refresh-fixture", projectId: "google-refresh-fixture", isTest: false });
+      body.attribution.provider = "google";
+      body.attribution.identifiers = [{ type: "google_gclid", value: "fictional-click" }];
+      const lead = await intake(a, body);
+      const qualified = await ok("leads/" + lead.body.leadId + "/qualify", ta, { contactReachable: true, relevantNeed: true, targetBuyer: true, nextAction: "Fixture" });
+      let refreshes = 0, validations = 0;
+      global.fetch = async (url, options) => {
+        const host = new URL(String(url)).hostname;
+        if (host === "oauth2.googleapis.com") { refreshes++; return new Response(JSON.stringify({ access_token: "refreshed-fixture", expires_in: 3600 })); }
+        if (host === "datamanager.googleapis.com") {
+          validations++; assert.equal(options.headers.authorization, "Bearer refreshed-fixture");
+          assert.equal(JSON.parse(options.body).validateOnly, true);
+          return new Response("{}");
+        }
+        return nativeFetch(url, options);
+      };
+      try {
+        const result = await ok("feedback/qualified/" + qualified.delivery.id + "/send", ta, { confirmed: true });
+        assert.equal(result.state, "validated");
+        await ok("feedback/qualified/" + qualified.delivery.id + "/send", ta, { confirmed: true });
+        assert.equal(refreshes, 1); assert.equal(validations, 1);
+        const secrets = await context(a, () => tenants.secretSettings());
+        assert.equal(secrets.feedback.google.accessToken, "refreshed-fixture");
+        assert.ok(secrets.feedback.google.expiresAt > Date.now() + 3500000);
+        assert.equal((await context(b, () => tenants.secretSettings())).feedback, undefined);
+        assert.doesNotMatch(JSON.stringify(await ok("integrations", ta)), /fixture-refresh|refreshed-fixture|fixture-secret/);
+      } finally { global.fetch = nativeFetch; }
+    });
+    await t.test("native Meta polling resumes failures, shares Webhook dedup and honors tenant cutover", async () => {
+      const config = { pollingEnabled: true, appSecret: "fixture-app-secret", verifyToken: "fixture-verify", pages: [{ pageId: "123", accountId: "456", apiVersion: "v26.0", accessToken: "fixture-page-token", formIds: ["789"] }] };
+      await ok("integrations/metaLeads", ta, config);
+      const service = app.get(m.MetaLeadsService), now = new Date().toISOString();
+      const leads = ["11111", "22222"].map(id => ({ id, form_id: "789", created_time: now, field_data: [{ name: "full_name", values: ["Fictional Meta Buyer"] }, { name: "email", values: ["meta@example.test"] }] }));
+      let failSecond = true;
+      global.fetch = async (url, options) => {
+        const u = new URL(String(url));
+        if (u.hostname !== "graph.facebook.com") return nativeFetch(url, options);
+        assert.equal(options.redirect, "error");
+        assert.equal(options.headers.authorization, "Bearer fixture-page-token");
+        if (u.pathname.endsWith("/11111")) return new Response(JSON.stringify(leads[0]));
+        assert.equal(u.pathname, "/v26.0/789/leads");
+        const filter = JSON.parse(u.searchParams.get("filtering"));
+        assert.equal(filter[0].field, "time_created");
+        if (u.searchParams.get("after")) return failSecond ? new Response('{"error":{"code":4}}', { status: 429 }) : new Response(JSON.stringify({ data: [leads[1]] }));
+        return new Response(JSON.stringify({ data: [leads[0], { ...leads[0], id: "99999", created_time: new Date(Date.now() - 3 * 86400000).toISOString() }], paging: { next: "https://untrusted.example.test/never-follow", cursors: { after: "page2" } } }));
+      };
+      try {
+        const failed = await context(a, () => service.pollDue());
+        assert.equal(failed.state, "failed");
+        assert.equal(failed.errorCode, "meta_lead_rate_limited");
+        assert.equal(failed.receivedCount, 1);
+        failSecond = false;
+        await context(a, () => tenants.db.query("UPDATE crm_lead_sync_state SET next_run_at=now() WHERE workspace_id=$1", [a.workspaceId]));
+        const resumed = await context(a, () => service.pollDue());
+        assert.equal(resumed.state, "complete");
+        assert.equal(resumed.receivedCount, 1);
+        assert.equal(await context(a, () => service.pollDue()), null);
+        const body = { object: "page", entry: [{ id: "123", changes: [{ field: "leadgen", value: { leadgen_id: "11111" } }] }] }, raw = Buffer.from(JSON.stringify(body));
+        const webhook = await service.receive(a.slug, body, raw, "sha256=" + createHmac("sha256", config.appSecret).update(raw).digest("hex"));
+        assert.equal(webhook.receipts[0].deduplicated, true);
+        const stored = await context(a, () => tenants.db.query("SELECT event_id FROM crm_ingestion_receipts WHERE source='meta'"));
+        assert.deepEqual(stored.rows.map(x => x.event_id).sort(), ["11111", "22222"]);
+        assert.equal((await context(b, () => tenants.db.query("SELECT * FROM crm_lead_sync_runs"))).rowCount, 0);
+        assert.equal((await ok("integrations", ta)).metaLeadIntake.recentRuns.length, 2);
+        const consent = await context(a, () => tenants.db.query("SELECT consent_status FROM attribution_touches WHERE lead_id=$1", [webhook.receipts[0].leadId]));
+        assert.equal(consent.rows[0].consent_status, "unknown");
+      } finally { global.fetch = nativeFetch; }
+    });
     await t.test(
       "conversation channels, replies and native intake are account scoped and idempotent",
       async () => {
@@ -641,6 +711,7 @@ test("isolated PostgreSQL SaaS acceptance", async (t) => {
           },
           calls = [];
         global.fetch = async (url, init) => {
+          assert.equal(init.headers["developer-token"], undefined);
           calls.push(JSON.parse(init.body));
           return new Response(
             JSON.stringify(
@@ -663,7 +734,7 @@ test("isolated PostgreSQL SaaS acceptance", async (t) => {
         const rows = await context(a, () =>
           ads.readDay(
             c,
-            { accessToken: "fixture", developerToken: "fixture" },
+            { accessToken: "fixture" },
             "2026-10-28",
           ),
         );

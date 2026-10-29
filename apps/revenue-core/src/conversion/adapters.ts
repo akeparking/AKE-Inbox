@@ -70,7 +70,10 @@ export class MetaAdsAdapter implements AdsConversionAdapter {
     const hashes = userHashes(context);
     const userData: Record<string, unknown> = {};
     const leadId = ids.get("meta_leadgen_id");
-    if (leadId) userData.lead_id = leadId;
+    const nativeLead = context.lead.sourceKind === "instant_form";
+    if (nativeLead && !/^\d+$/.test(leadId || ""))
+      throw new AdapterError("Native form lead ID required", "META_LEAD_ID_REQUIRED", false);
+    if (nativeLead) userData.lead_id = leadId;
     if (ids.get("meta_fbc")) userData.fbc = ids.get("meta_fbc");
     if (ids.get("meta_fbp")) userData.fbp = ids.get("meta_fbp");
     if (ids.get("meta_ctwa_clid")) userData.ctwa_clid = ids.get("meta_ctwa_clid");
@@ -83,11 +86,14 @@ export class MetaAdsAdapter implements AdsConversionAdapter {
           event_name: "QualifiedLead",
           event_time: Math.floor(new Date(context.delivery.occurredAt).getTime() / 1000),
           event_id: context.delivery.eventId,
-          ...(context.lead.sourceKind === "website" ? { action_source: "website" } : {}),
+          // This adapter sends CRM stages, not the original website submission.
+          action_source: nativeLead ? "system_generated" : "other",
           user_data: userData,
           custom_data: {
-            event_source: "crm",
-            lead_event_source: this.config.meta.leadEventSource,
+            ...(nativeLead ? {
+              event_source: "crm",
+              lead_event_source: this.config.meta.leadEventSource,
+            } : {}),
             crm_lead_id: context.lead.id,
             opportunity_id: context.opportunity?.id,
             lead_stage: "Qualified Lead",
