@@ -108,4 +108,24 @@ describe.each(drivers)("%s workflow invariants", (driver) => {
     vi.stubEnv('QUALIFIED_FEEDBACK_ENABLED','true');await new ConversionService(store).processBatch(1000);
     expect((await store.listDeliveries(workspaceId)).find(d=>d.id===r.delivery.id)).toMatchObject({status:'accepted',attemptCount:1});
   });
+  it('quarantines legacy Live Meta work and rejects replay even with the manual feature disabled', async () => {
+    const {workspaceId}=await setup();vi.stubEnv('ADS_MODE','live');vi.stubEnv('META_FEEDBACK_ENABLED','false');
+    const ids:string[]=[];
+    for(const status of ['pending','retrying','dead_letter'] as const){
+      // Fictional IDs only; this test never invokes a platform transport.
+      const lead=await store.ingestLead({workspaceId,provider:'meta',sourceKind:'website',externalLeadId:'legacy-'+status,displayName:'Fictional legacy queue',isTest:false,
+        attribution:{provider:'meta',sourceKind:'website',occurredAt:new Date().toISOString(),consentStatus:'granted',identifiers:[{type:'meta_fbc',value:'fb.1.1234567890000.fictional'}]}});
+      const r=await store.qualifyLead({workspaceId,leadId:lead.id,actorId:'fixture-reviewer',contactReachable:true,relevantNeed:true,targetBuyer:true,nextAction:'Local legacy queue test'});
+      expect(r.delivery.status).toBe('pending');ids.push(r.delivery.id);
+      await store.updateDelivery(r.delivery.id,{status});
+      await expect(store.replayDelivery(workspaceId,r.delivery.id)).rejects.toThrow();
+    }
+    const claimed=await store.claimPendingDeliveries(1000,'live');expect(claimed.some(d=>ids.includes(d.id))).toBe(false);
+    const rows=await store.listDeliveries(workspaceId);
+    for(const id of ids.slice(0,2))expect(rows.find(d=>d.id===id)).toMatchObject({status:'review',providerErrorCode:'META_LEGACY_REVIEW_REQUIRED',attemptCount:0});
+    vi.stubEnv('ADS_MODE','mock');
+    const mockLead=await store.ingestLead({workspaceId,provider:'meta',sourceKind:'website',externalLeadId:'mock-meta',displayName:'Fictional mock queue',isTest:true,attribution:{provider:'meta',sourceKind:'website',occurredAt:new Date().toISOString(),identifiers:[]}});
+    const mock=await store.qualifyLead({workspaceId,leadId:mockLead.id,actorId:'fixture-reviewer',contactReachable:true,relevantNeed:true,targetBuyer:true,nextAction:'Local mock queue test'});
+    expect((await store.claimPendingDeliveries(1000,'mock')).some(d=>d.id===mock.delivery.id)).toBe(true);
+  });
 });

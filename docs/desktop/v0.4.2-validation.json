@@ -1,0 +1,48 @@
+{
+  "version": "0.4.2",
+  "status": "v0.4.2 正式增量版 · 保留多租户功能并完成五项修复",
+  "releaseDate": "2026-10-29",
+  "checks": [
+    {
+      "name": "五项修复与 SaaS 回归",
+      "result": "通过",
+      "scope": "新增 19 项：14 项移植回归及 5 项 SaaS 回执、并发和租户隔离回归",
+      "passed": true
+    },
+    {
+      "name": "本地自动化测试",
+      "result": "通过",
+      "scope": "210 项；Core 117 项、SaaS 24 项、桌面 26 项，数据库套件未跳过",
+      "passed": true
+    },
+    {
+      "name": "完整构建与依赖",
+      "result": "通过",
+      "scope": "类型、完整构建、部署包、Windows 包通过；根项目与桌面依赖审计 0 漏洞",
+      "passed": true
+    },
+    {
+      "name": "同工具复查与 GitHub CI",
+      "result": "见随包实际记录",
+      "scope": "准确提交的结果与范围见 verification.json、审查报告及脱敏扫描 JSON",
+      "passed": false
+    },
+    {
+      "name": "Windows 实机与 8 小时观察",
+      "result": "未执行",
+      "scope": "本次未重跑，历史记录不作为本轮通过证据",
+      "passed": false
+    },
+    {
+      "name": "真实渠道/CRM/广告平台验收",
+      "result": "未执行",
+      "scope": "本次不部署生产或启用真实平台发送",
+      "passed": false
+    }
+  ],
+  "physicalWindows": false,
+  "providerAcceptance": false,
+  "testsPassed": 210,
+  "newRegressionCases": 19,
+  "migrationFromV040": false
+}

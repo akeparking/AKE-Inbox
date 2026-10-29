@@ -417,6 +417,14 @@ export class MemoryRevenueStore implements RevenueStore {
   }
 
   async claimPendingDeliveries(limit: number, mode: 'mock' | 'live' = 'mock'): Promise<ConversionDeliveryRecord[]> {
+    if (mode === 'live') for (const delivery of this.deliveries.values()) {
+      if (delivery.mode === 'live' && delivery.provider === 'meta' && ['pending','retrying'].includes(delivery.status)) {
+        delivery.status = 'review';
+        delivery.providerErrorCode = 'META_LEGACY_REVIEW_REQUIRED';
+        delivery.nextRetryAt = undefined;
+        delivery.updatedAt = new Date().toISOString();
+      }
+    }
     const candidates = [...this.deliveries.values()]
       .filter(
         (delivery) =>
@@ -441,6 +449,7 @@ export class MemoryRevenueStore implements RevenueStore {
   async replayDelivery(workspaceId: string, deliveryId: string): Promise<ConversionDeliveryRecord> {
     const delivery = this.deliveries.get(deliveryId);
     if (!delivery || delivery.workspaceId !== workspaceId) throw new Error("Delivery not found");
+    if (delivery.mode === 'live' && delivery.provider === 'meta') throw new Error('Legacy Meta delivery requires manual reconciliation');
     if (!['pending','retrying','dead_letter'].includes(delivery.status)||delivery.providerResponseId) throw new Error("Delivery cannot be replayed without reconciliation");
     delivery.status = "pending";
     delivery.nextRetryAt = undefined;

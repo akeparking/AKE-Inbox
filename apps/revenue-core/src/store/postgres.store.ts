@@ -623,11 +623,12 @@ export class PostgresRevenueStore implements RevenueStore {
   }
 
   async claimPendingDeliveries(limit: number, mode: 'mock' | 'live' = 'mock'): Promise<ConversionDeliveryRecord[]> {
+    if (mode === 'live') await this.pool.query("UPDATE conversion_deliveries SET status='review',provider_error_code='META_LEGACY_REVIEW_REQUIRED',next_retry_at=NULL,updated_at=now() WHERE mode='live' AND provider='meta' AND status IN ('pending','retrying')");
     await this.pool.query("UPDATE conversion_deliveries SET status='review',provider_error_code='INTERRUPTED_OUTCOME_UNKNOWN',updated_at=now() WHERE mode=$1 AND status='dispatching' AND updated_at<now()-interval '5 minutes'", [mode]);
     const result = await this.pool.query(
       `WITH candidates AS (
          SELECT id FROM conversion_deliveries
-         WHERE mode=$2 AND (status='pending' OR (status='retrying' AND (next_retry_at IS NULL OR next_retry_at<=now())))
+         WHERE mode=$2 AND NOT (mode='live' AND provider='meta') AND (status='pending' OR (status='retrying' AND (next_retry_at IS NULL OR next_retry_at<=now())))
          ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT $1
        )
        UPDATE conversion_deliveries d SET status='dispatching',updated_at=now()
@@ -654,7 +655,7 @@ export class PostgresRevenueStore implements RevenueStore {
   async replayDelivery(workspaceId: string, deliveryId: string): Promise<ConversionDeliveryRecord> {
     const result = await this.pool.query(
       `UPDATE conversion_deliveries SET status='pending',next_retry_at=NULL,provider_error_code=NULL,provider_error_message=NULL,updated_at=now()
-       WHERE workspace_id=$1 AND id=$2 AND status IN ('pending','retrying','dead_letter') AND provider_response_id IS NULL RETURNING *`,
+       WHERE workspace_id=$1 AND id=$2 AND NOT (mode='live' AND provider='meta') AND status IN ('pending','retrying','dead_letter') AND provider_response_id IS NULL RETURNING *`,
       [workspaceId, deliveryId],
     );
     if (!result.rowCount) throw new Error("Delivery not found or cannot be replayed");

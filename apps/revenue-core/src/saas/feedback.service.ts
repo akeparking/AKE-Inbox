@@ -294,7 +294,11 @@ export class FeedbackService {
               response.status >= 500,
             );
           const result: any = await response.json();
-          if (result.events_received !== 1 || !result.fbtrace_id)
+          if (
+            result?.error ||
+            result?.events_received !== 1 ||
+            !/^[\w-]{1,200}$/.test(result?.fbtrace_id || "")
+          )
             throw new AdapterError(
               "unknown",
               "RECEIPT_INCOMPLETE",

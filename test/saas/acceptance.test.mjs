@@ -905,6 +905,63 @@ test("isolated PostgreSQL SaaS acceptance", async (t) => {
         global.fetch = nativeFetch;
       },
     );
+    for (const [name, response, expected] of [
+      ["empty", {}, "review"],
+      ["zero-events", { events_received: 0, fbtrace_id: "fixture" }, "review"],
+      ["mixed-error", { events_received: 1, fbtrace_id: "fixture", error: { message: "fixture-private-detail" } }, "review"],
+      ["invalid-trace", { events_received: 1, fbtrace_id: "fixture private detail" }, "review"],
+      ["accepted", { events_received: 1, fbtrace_id: "fixture-receipt" }, "accepted"],
+    ]) {
+      await t.test(`SaaS Meta ${name} receipt preserves tenant scope and sends once`, async () => {
+        const incoming = await intake(a, inquiry({
+          eventId: "v042-receipt-" + name,
+          projectId: "v042-receipt-" + name,
+          isTest: false,
+        }));
+        assert.equal(incoming.status, 201);
+        const q = await ok("leads/" + incoming.body.leadId + "/qualify", ta, {
+          contactReachable: true, relevantNeed: true, targetBuyer: true,
+          nextAction: "Fixture regression followup",
+        });
+        const path = "feedback/qualified/" + q.delivery.id;
+        let sends = 0;
+        global.fetch = async (url, options) => {
+          if (new URL(String(url)).hostname !== "graph.facebook.com")
+            return nativeFetch(url, options);
+          sends++;
+          assert.equal(options.redirect, "error");
+          assert.ok(options.signal);
+          assert.equal(new URL(String(url)).search, "");
+          return new Response(JSON.stringify(response), { status: 200 });
+        };
+        try {
+          assert.equal((await req(path + "/send", tb, { confirmed: true })).status, 404);
+          assert.equal(sends, 0);
+          const replies = await Promise.all([
+            ok(path + "/send", ta, { confirmed: true }),
+            ok(path + "/send", ta, { confirmed: true }),
+          ]);
+          assert.ok(replies.some(r => r.state === expected));
+          assert.equal(sends, 1);
+          const again = await ok(path + "/send", ta, { confirmed: true });
+          assert.equal(again.state, expected);
+          assert.equal(again.deduplicated, true);
+          assert.equal(sends, 1);
+          assert.equal((await req(path + "/retry", ta, {
+            confirmed: true, reason: "No evidence to repeat this upload",
+          })).status, 409);
+          assert.doesNotMatch(JSON.stringify(replies), /fixture-private-detail|fixture private detail/);
+          const persisted = await context(a, async () => (await tenants.db.query(
+            "SELECT state,receipt FROM crm_feedback_attempts WHERE event_key=$1",
+            [q.delivery.eventId],
+          )).rows[0]);
+          assert.equal(persisted.state, expected);
+          assert.equal(persisted.receipt.matching, "unknown");
+        } finally {
+          global.fetch = nativeFetch;
+        }
+      });
+    }
     await t.test(
       "restart recovery keeps durable send intent and data; no default-tenant escape",
       async () => {

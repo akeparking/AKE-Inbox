@@ -6,6 +6,7 @@ import type { Actor } from '../inbox-v2/contracts';
 import { loadConfig } from '../config';
 import { AdapterError } from '../conversion/adapters';
 import { sendMetaCapi } from '../conversion/meta-capi';
+import type { Pool, PoolClient } from 'pg';
 
 const stages = ['Lead', 'QualifiedLead', 'ConvertedLead'] as const;
 const prepareSchema = z.object({
@@ -52,21 +53,21 @@ export class MetaFeedback {
       WHERE account_id=$1 AND ($2::uuid IS NULL OR inquiry_id=$2) ORDER BY created_at DESC LIMIT 200`, [accountId, inquiryId || null])).rows
       .map(r => ({ ...r, matching: 'unknown', processing: 'unknown' }));
   }
-  private async eligibility(row: any, sourceType: string, mode: string) {
+  private async eligibility(row: any, sourceType: string, mode: string, db: Pool | PoolClient = this.repo.db) {
     if (!row.message_id || !row.lead_id || row.identity_state === 'conflict') throw new ConflictException('等待 Inbox 收件，并先解决身份冲突');
     if (row.contact_id) {
-      const c = (await this.repo.db.query('SELECT identity_conflict,opted_out,blocked FROM inbox_v2_contacts WHERE account_id=$1 AND contact_id=$2', [row.account_id, row.contact_id])).rows[0];
+      const c = (await db.query('SELECT identity_conflict,opted_out,blocked FROM inbox_v2_contacts WHERE account_id=$1 AND contact_id=$2', [row.account_id, row.contact_id])).rows[0];
       if (c?.identity_conflict || c?.opted_out || c?.blocked) throw new ConflictException('联系人存在身份冲突、退订或屏蔽');
     }
-    const lead = (await this.repo.db.query('SELECT is_test FROM leads WHERE id=$1', [row.lead_id])).rows[0];
+    const lead = (await db.query('SELECT is_test FROM leads WHERE id=$1', [row.lead_id])).rows[0];
     if (mode !== 'mock' && lead?.is_test !== false) throw new ConflictException('虚构测试询盘不能发送至 Meta，包括 Test Events');
     if (mode === 'live' && process.env.MARKETING_TEST_MODE === 'true') throw new ConflictException('本地测试环境尚未启用正式回传');
     if (sourceType === 'website') {
       if (!['form', 'website', 'backend_form'].includes(row.source_kind)) throw new ConflictException('该询盘不是网站收件');
-      const consent = (await this.repo.db.query('SELECT choices FROM marketing_consents WHERE id=$1 AND site_id=$2', [row.consent_id, row.site_id])).rows[0]?.choices;
+      const consent = (await db.query('SELECT choices FROM marketing_consents WHERE id=$1 AND site_id=$2', [row.consent_id, row.site_id])).rows[0]?.choices;
       if (consent?.adStorage !== 'granted' || consent?.adUserData !== 'granted') throw new ConflictException('缺少广告数据使用同意');
       if (row.visitor_id) {
-        const visitor = (await this.repo.db.query('SELECT v.revoked_at,c.choices FROM marketing_visitors v JOIN marketing_consents c ON c.id=v.consent_id WHERE v.id=$1 AND v.site_id=$2', [row.visitor_id, row.site_id])).rows[0];
+        const visitor = (await db.query('SELECT v.revoked_at,c.choices FROM marketing_visitors v JOIN marketing_consents c ON c.id=v.consent_id WHERE v.id=$1 AND v.site_id=$2', [row.visitor_id, row.site_id])).rows[0];
         if (!visitor || visitor.revoked_at || visitor.choices.adStorage !== 'granted' || visitor.choices.adUserData !== 'granted') throw new ConflictException('广告数据使用同意已撤回');
       }
     }
@@ -138,14 +139,18 @@ export class MetaFeedback {
     if (actor.accountId !== Number(inquiry.account_id)) throw new ForbiddenException();
     // Test Events also reach Meta measurement. Serialize claims across modes/senders.
     const claim = await this.repo.transaction('meta-outbound', async db => {
+      // The inquiry is authoritative; the caller may have waited for native permissions.
+      // Lock it before feedback rows, matching the order used by source corrections.
+      const latest = (await db.query('SELECT * FROM marketing_inquiries WHERE id=$1 AND account_id=$2 FOR UPDATE', [inquiry.id, actor.accountId])).rows[0];
+      if (!latest) throw new ForbiddenException('询盘不可用');
       const row = (await db.query('SELECT * FROM marketing_meta_feedback WHERE id=$1 AND account_id=$2 AND inquiry_id=$3 FOR UPDATE', [id, actor.accountId, inquiry.id])).rows[0];
       if (!row) throw new ForbiddenException('回执不属于此询盘');
       if (row.status !== 'ready' && row.status !== 'rejected') return { duplicate: true, status: row.status };
       const settings = this.settings();
       if (!settings.canSend || row.mode !== settings.mode || row.dataset_id !== settings.datasetId) throw new ConflictException('回传配置已改变或尚未完成，请核对模式与数据集');
       if (row.mode !== 'mock') await this.alreadyDispatched(db, row.dataset_id, row.subject_key, row.event_name, row.id);
-      await this.eligibility(inquiry, row.source_type, row.mode);
-      if (this.repo.unpack(row.evidence).attributionKey !== this.repo.identity(JSON.stringify([inquiry.visitor_id,inquiry.visit_id,inquiry.consent_id]))) throw new ConflictException('询盘来源关联已改变，待回传事件需核对');
+      if (this.repo.unpack(row.evidence).attributionKey !== this.repo.identity(JSON.stringify([latest.visitor_id,latest.visit_id,latest.consent_id]))) throw new ConflictException('询盘来源关联已改变，待回传事件需核对');
+      await this.eligibility(latest, row.source_type, row.mode, db);
       const payload = this.repo.unpack(row.payload); checkMetaTime(payload.data[0].event_time);
       if (payload.test_event_code !== settings.testCode) throw new ConflictException('测试事件代码已改变');
       const previous = stages.slice(0, stages.indexOf(row.event_name));
@@ -157,8 +162,8 @@ export class MetaFeedback {
         if (!accepted || unix(accepted.occurred_at) > unix(row.occurred_at)) throw new ConflictException('请先回传此前阶段，并保持真实时间顺序');
       }
       // Do not upload an event already owned by the older generic delivery path.
-      const other = (await db.query("SELECT id FROM conversion_deliveries WHERE primary_source_lead_id=$1 AND provider='meta' AND mode='live' AND status IN ('accepted','dispatching','review','pending','retrying') LIMIT 1", [inquiry.lead_id])).rows[0];
-      if (row.mode === 'live' && other) throw new ConflictException('旧回传账本已有记录，请先核对，避免重复上传');
+      const other = (await db.query("SELECT id FROM conversion_deliveries WHERE primary_source_lead_id=$1 AND provider='meta' AND mode='live' AND (status IN ('accepted','dispatching','review','pending','retrying') OR attempt_count>0 OR provider_response_id IS NOT NULL) LIMIT 1", [latest.lead_id])).rows[0];
+      if (row.mode !== 'mock' && other) throw new ConflictException('旧回传账本已有记录，请先核对，避免重复上传');
       const attempt = row.attempt_count + 1;
       await db.query("UPDATE marketing_meta_feedback SET status='sending',attempt_count=$2,error_code=NULL,updated_at=now() WHERE id=$1", [id, attempt]);
       await db.query("INSERT INTO marketing_meta_attempts(feedback_id,attempt,actor_id,status) VALUES($1,$2,$3,'sending')", [id, attempt, actor.userId]);
