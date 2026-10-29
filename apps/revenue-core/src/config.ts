@@ -1,3 +1,4 @@
+import { saasEnabled, tenantContext } from './saas/context';
 export interface AppConfig {
   port: number;
   defaultWorkspaceId: string;
@@ -58,6 +59,11 @@ function bool(value: string | undefined, fallback = false): boolean {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
+  if(saasEnabled()) {
+    const tenant=tenantContext.getStore();
+    env={...env,DEFAULT_WORKSPACE_ID:tenant?.workspaceId||'',DEFAULT_USER_ID:tenant?.userId||'',DEMO_SEED:'false',
+      ADS_MODE:tenant?.settings.feedbackMode==='live'?'live':'mock',OKKI_SYNC_ENABLED:'false',MODEL_PROVIDER:'mock',GOOGLE_DATA_MANAGER_ACCESS_TOKEN:'',META_ACCESS_TOKEN:''};
+  }
   if (env.AI_AUTO_SEND && env.AI_AUTO_SEND.toLowerCase() !== "false") {
     throw new Error("AI_AUTO_SEND is locked to false for the MVP");
   }

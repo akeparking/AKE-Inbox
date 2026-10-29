@@ -10,12 +10,12 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { rawBody: true });
   app.useGlobalFilters(new ValidationFilter());
   app.enableCors({
-    origin: process.env.CORS_ORIGIN?.split(",").map((value) => value.trim()) || true,
+    origin: process.env.CORS_ORIGIN?.split(",").map((value) => value.trim()) || (process.env.SAAS_MODE === 'true' ? false : true),
     credentials: true,
   });
   app.enableShutdownHooks();
 
-  await app.listen(config.port, "0.0.0.0");
+  await app.listen(config.port, process.env.LISTEN_HOST || "0.0.0.0");
   Logger.log(`Revenue Core listening on :${config.port}`, "Bootstrap");
 }
 

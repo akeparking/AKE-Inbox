@@ -1,9 +1,11 @@
 import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from "@nestjs/common";
 import { loadConfig } from "../config";
+import { saasEnabled } from '../saas/context';
 
 @Injectable()
 export class ApiKeyGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
+    if(saasEnabled())return true; // SaasGuard authenticates every exposed route.
     const config = loadConfig();
     if (config.apiAuthMode === "demo") return true;
     const request = context.switchToHttp().getRequest<{ headers: Record<string, string | undefined>; url: string }>();
