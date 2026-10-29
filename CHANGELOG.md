@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.4.2 — 2026-10-29
+
+- Preserve v0.4.0 tenant Inbox/CRM, quote history, outcomes, advertising reports, AI and desktop routing.
+- Port all five v0.3.1 audit fixes: reuse transaction connections, serialize attribution corrections, retire the old automatic Meta Live queue, preserve newly granted visit context, and hold incomplete/unknown Meta receipts.
+- Reject contradictory or malformed Meta receipts in the SaaS feedback path; retain explicit authorization-rejection retry and tenant-scoped durable send intents.
+- Add 19 regressions over v0.4.0, including the 14 ported cases and five SaaS receipt/concurrency/isolation cases. Publish fresh audit evidence with the release.
+- No new SQL migration from v0.4.0. Update Core API and worker together; preserve existing records and reconcile in-flight/legacy sends. This release does not deploy services or enable provider Live mode.
+
+
 ## [0.4.0] - 2026-10-29
 
 - Extended the deployed v0.3.0 baseline with tenant-scoped companies, contacts, independent inquiry qualification, multiple projects, follow-ups, quote revisions and auditable outcomes.

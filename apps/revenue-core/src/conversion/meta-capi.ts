@@ -1,4 +1,5 @@
-import { AdapterError, type AdapterResult } from './adapters';
+import { AdapterError } from './adapter-error';
+import type { AdapterResult } from './adapters';
 import type { AppConfig } from '../config';
 
 // A server-only transport. Neither URLs nor stored errors contain credentials/PII.

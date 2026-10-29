@@ -2,23 +2,15 @@ import { sha256 } from "../common/crypto";
 import { loadConfig, type AppConfig } from "../config";
 import type { QualifiedContext } from "../store/store.types";
 import type { ConversionReceiptStages } from '@ake/contracts';
+import { AdapterError } from './adapter-error';
+import { sendMetaCapi } from './meta-capi';
+export { AdapterError } from './adapter-error';
 
 export interface AdapterResult {
   responseId?: string;
   diagnosticStatus: "unknown" | "matched" | "unmatched" | "warning";
   receiptStages?:ConversionReceiptStages;
   validatedOnly?:boolean;
-}
-
-export class AdapterError extends Error {
-  constructor(
-    message: string,
-    readonly code: string,
-    readonly retryable: boolean,
-    readonly uncertain = false,
-  ) {
-    super(message);
-  }
 }
 
 export interface AdsConversionAdapter {
@@ -106,17 +98,7 @@ export class MetaAdsAdapter implements AdsConversionAdapter {
   }
 
   async send(payload: Record<string, unknown>): Promise<AdapterResult> {
-    const { accessToken, datasetId, graphVersion } = this.config.meta;
-    if (!accessToken || !datasetId) throw new AdapterError("Meta live credentials are incomplete", "META_CONFIG", false);
-    const url = new URL(`https://graph.facebook.com/${graphVersion}/${datasetId}/events`);
-    url.searchParams.set("access_token", accessToken);
-    const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      const code = String(body?.error?.code || response.status);
-      throw new AdapterError(body?.error?.message || "Meta request failed", code, response.status === 429 || response.status >= 500);
-    }
-    return { responseId: body.fbtrace_id || body.events_received?.toString() || `meta_${Date.now()}`, diagnosticStatus: "unknown" };
+    return sendMetaCapi(this.config.meta, payload);
   }
 
   async queryDiagnostics(): Promise<AdapterResult["diagnosticStatus"]> {

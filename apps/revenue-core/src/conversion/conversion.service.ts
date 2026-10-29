@@ -29,6 +29,14 @@ export class ConversionService {
     const deliveries = await this.store.claimPendingDeliveries(limit, mode);
     const results = [];
     for (const delivery of deliveries) {
+      // Legacy Live Meta work must be reconciled, including work claimed before an upgrade.
+      if (delivery.provider === 'meta' && delivery.mode === 'live') {
+        results.push(await this.store.updateDelivery(delivery.id, {
+          status: 'review', providerErrorCode: 'META_LEGACY_REVIEW_REQUIRED', nextRetryAt: undefined,
+          providerErrorMessage: 'Use reviewed Meta feedback after reconciling the legacy receipt',
+        }));
+        continue;
+      }
       const context = await this.store.getQualifiedContext(delivery.id);
       if (!context) {
         results.push(await this.store.updateDelivery(delivery.id, { status: "dead_letter", providerErrorCode: "CONTEXT_MISSING", providerErrorMessage: "Qualified context is missing" }));
