@@ -37,7 +37,9 @@ export async function fakeChatwoot(port = 0) {
     const user = Number(
       String(req.headers["access-token"] || "").split("-")[1],
     );
-    if (!req.headers.api_access_token && (!user || revoked.has(user)))
+    // Public gateways can drop underscore-named headers. Exercise the
+    // hyphenated header that Rails normalizes to HTTP_API_ACCESS_TOKEN.
+    if (!req.headers["api-access-token"] && (!user || revoked.has(user)))
       return send(401, {});
     if (path.pathname === "/api/v1/profile")
       return send(200, { id: user, accounts: [{ id: 10 }, { id: 20 }] });

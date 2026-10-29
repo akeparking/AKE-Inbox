@@ -30,10 +30,8 @@ services:
     env_file: ${SAAS_PRIVATE_DIR}/owner.env
     volumes:
       - ${SAAS_BUNDLE}/core:/app:ro
-      - ./enable-rls.sql:/opt/saas/enable-rls.sql:ro
-      - ./finish-schema.cjs:/app/finish-schema.cjs:ro
-    environment: {SAAS_RLS_FILE: /opt/saas/enable-rls.sql}
-    command: ['node apps/revenue-core/dist/database/migrate.js && node finish-schema.cjs']
+    environment: {SAAS_RLS_FILE: /app/deploy/saas/enable-rls.sql}
+    command: ['node apps/revenue-core/dist/database/migrate.js && node deploy/saas/finish-schema.cjs']
     networks: [business]
     depends_on:
       db: {condition: service_healthy}

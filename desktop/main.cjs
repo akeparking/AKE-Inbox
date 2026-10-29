@@ -3,7 +3,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const WebSocket = require('ws');
-const { settings, sameOrigin } = require('./config.cjs');
+const { settings, sameOrigin, crmWorkspaceTarget } = require('./config.cjs');
 const { Reception } = require('./reception.cjs');
 const { REPOSITORY, selectRelease } = require('./updates.cjs');
 const { badge } = require('./badge.cjs');
@@ -171,16 +171,30 @@ async function synchronize(renew = false) {
     void flushReadReceipt();
   } finally { syncing = false; }
 }
-async function open(name) {
+async function open(name, requestedUrl) {
   if (!config || !['inbox', 'workspace'].includes(name) || opening) return publish();
+  const workspaceTarget = name === 'workspace' && requestedUrl ? crmWorkspaceTarget(requestedUrl, config.workspaceUrl) : null;
+  if (requestedUrl && !workspaceTarget) return publish();
   hideView();
-  if (views.has(name)) { view = views.get(name); pane = name; win.contentView.addChildView(view); resize(); void flushReadReceipt(); return publish(); }
-  const generation = epoch, url = name === 'inbox' ? config.inboxUrl : config.workspaceUrl;
+  if (views.has(name)) {
+    view = views.get(name); pane = name; win.contentView.addChildView(view); resize(); void flushReadReceipt();
+    if (workspaceTarget) {
+      try { await view.webContents.loadURL(workspaceTarget); }
+      catch { publish({ error: 'CRM 连接中断，请稍后重试。' }); }
+    }
+    return publish();
+  }
+  const generation = epoch, url = name === 'inbox' ? config.inboxUrl : workspaceTarget || config.workspaceUrl;
   const child = new WebContentsView({ webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, backgroundThrottling: true, partition, ...(name === 'inbox' ? { preload: path.join(__dirname, 'reception-preload.cjs') } : {}) } });
   views.set(name, child); view = child; pane = name; opening = true;
   if (name === 'inbox') { connection = 'connecting'; nativeHttpHealthy = false; }
   child.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  const guard = (event, target) => { if (!sameOrigin(target, url)) { event.preventDefault(); publish({ notice: '此入口只允许访问已配置的办公室主机。' }); } };
+  const guard = (event, target) => {
+    if (name === 'inbox' && crmWorkspaceTarget(target, config.workspaceUrl)) {
+      event.preventDefault(); void open('workspace', target); return;
+    }
+    if (!sameOrigin(target, url)) { event.preventDefault(); publish({ notice: '此入口只允许访问已配置的办公室主机。' }); }
+  };
   child.webContents.on('will-navigate', guard); child.webContents.on('will-redirect', guard);
   child.webContents.on('did-navigate', (_event, _target, status) => {
     if (name === 'inbox') nativeHttpHealthy = status >= 200 && status < 400;

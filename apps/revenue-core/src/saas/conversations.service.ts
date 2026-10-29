@@ -203,7 +203,9 @@ export class ConversationsService {
       mid = Number(body.id);
     if (!Number.isSafeInteger(mid) || mid < 1) throw new BadRequestException();
     const actor = this.tenants.fromRow(row, "system:chatwoot", "admin");
-    actor.credentials = { api_access_token: secrets.chatwootServiceToken };
+    // Rails accepts this canonical wire header; public proxies may remove
+    // underscore-named headers before the request reaches Chatwoot.
+    actor.credentials = { "api-access-token": secrets.chatwootServiceToken };
     actor.system = true;
     return tenantContext.run(actor, async () => {
       const conversation = await this.allowed(cid);
