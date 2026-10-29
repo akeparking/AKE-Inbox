@@ -5,6 +5,10 @@ import { InboxRepository } from '../inbox-v2/repository';
 import { sendMetaCapi } from '../conversion/meta-capi';
 import { loadConfig } from '../config';
 import { touch, marketingAttribution } from './contracts';
+import { MarketingService } from './service';
+import { Pool } from 'pg';
+import { MetaAdsAdapter } from '../conversion/adapters';
+import { ConversionService } from '../conversion/conversion.service';
 
 const admin: any = { accountId: 1, userId: 7, role: 'administrator', credentials: {} };
 const grant: any = { analytics: 'granted', adStorage: 'granted', adUserData: 'granted', adPersonalization: 'denied' };
@@ -46,6 +50,29 @@ describe('Meta event contract and transport', () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw Error('fictional-token'); }));
     await expect(sendMetaCapi(config(), { data: [{}] })).rejects.toMatchObject({ code: 'META_OUTCOME_UNKNOWN', uncertain: true });
   });
+  it.each([{}, { events_received: 0, fbtrace_id: 'fixture' }])('the legacy adapter also rejects incomplete receipts: %j', async body => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body))));
+    await expect(new MetaAdsAdapter({ ...loadConfig(), meta: config() }).send({ data: [{}] }))
+      .rejects.toMatchObject({ code: 'META_RECEIPT_INCOMPLETE', uncertain: true, retryable: false });
+  });
+  it('the legacy adapter keeps ambiguous uploads out of automatic retry and hides provider details', async () => {
+    const adapter = new MetaAdsAdapter({ ...loadConfig(), meta: config() });
+    vi.stubGlobal('fetch', vi.fn(async () => { throw Error('fictional connection lost after upload'); }));
+    await expect(adapter.send({ data: [{}] })).rejects.toMatchObject({ code: 'META_OUTCOME_UNKNOWN', uncertain: true, retryable: false });
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ error: { code: 190, message: 'fixture-private-detail' } }), { status: 400 }));
+    vi.stubGlobal('fetch', fetch);
+    await expect(adapter.send({ data: [{}] })).rejects.toMatchObject({ code: 'META_190', message: 'Meta 拒绝了本次回传' });
+    const [url,options] = (fetch.mock.calls as any)[0];
+    expect(String(url)).not.toContain('token');expect(options.redirect).toBe('error');expect(options.signal).toBeDefined();
+  });
+  it('holds legacy Live Meta work already claimed before an upgrade without a network call', async () => {
+    const fetch = vi.fn();vi.stubGlobal('fetch', fetch);
+    const delivery = { id:'legacy-fixture',provider:'meta',mode:'live' };
+    const store:any = { listDeliveries:async()=>[],claimPendingDeliveries:async()=>[delivery],getQualifiedContext:vi.fn(),updateDelivery:vi.fn(async (_id,update)=>update) };
+    const result=await new ConversionService(store).processBatch();
+    expect(result[0]).toMatchObject({status:'review',providerErrorCode:'META_LEGACY_REVIEW_REQUIRED'});
+    expect(store.getQualifiedContext).not.toHaveBeenCalled();expect(fetch).not.toHaveBeenCalled();
+  });
 });
 
 describe.skipIf(!process.env.META_FEEDBACK_TEST_DATABASE_URL)('Manual Meta feedback with isolated PostgreSQL', () => {
@@ -58,7 +85,7 @@ describe.skipIf(!process.env.META_FEEDBACK_TEST_DATABASE_URL)('Manual Meta feedb
   afterAll(async () => { await repo?.onModuleDestroy(); vi.unstubAllEnvs(); });
   beforeEach(async () => {
     fetchMock.mockReset(); vi.stubGlobal('fetch', fetchMock);
-    Object.assign(process.env, { META_FEEDBACK_ENABLED: 'true', META_FEEDBACK_MODE: 'mock', META_DATASET_ID: '123456789012345', META_ACCESS_TOKEN: 'fictional-token', META_TEST_EVENT_CODE: 'TEST_FIXTURE', MARKETING_TEST_MODE: 'false' });
+    Object.assign(process.env, { META_FEEDBACK_ENABLED: 'true', META_FEEDBACK_MODE: 'mock', META_DATASET_ID: '123456789012345', META_ACCESS_TOKEN: 'fictional-token', META_TEST_EVENT_CODE: 'TEST_FIXTURE', MARKETING_TEST_MODE: 'false', MARKETING_ENABLED:'true',ATTRIBUTION_UI_ENABLED:'true',ATTRIBUTION_CAPTURE_ENABLED:'true' });
     await repo.db.query('TRUNCATE marketing_sites,workspaces,inbox_v2_audit CASCADE');
     await repo.db.query('TRUNCATE marketing_meta_legacy_receipts');
     await repo.db.query("INSERT INTO workspaces(id,name) VALUES('fixture','Fixture')");
@@ -101,6 +128,28 @@ describe.skipIf(!process.env.META_FEEDBACK_TEST_DATABASE_URL)('Manual Meta feedb
     const sent = JSON.parse((fetchMock.mock.calls[0] as any)[1].body);
     expect(sent.test_event_code).toBe('TEST_FIXTURE');
   });
+  it('completes six simultaneous sends at the connection-pool limit with one upload', async () => {
+    process.env.META_FEEDBACK_MODE='test';
+    fetchMock.mockImplementation(async()=>new Response(JSON.stringify({events_received:1,fbtrace_id:'pool_fixture'})));
+    const a=await ready(),clients=await Promise.all(Array.from({length:6},()=>repo.db.connect()));
+    const pids=await Promise.all(clients.map(async c=>(await c.query('SELECT pg_backend_pid() pid')).rows[0].pid));
+    clients.forEach(c=>c.release());
+    const requests=Array.from({length:6},()=>meta.send(admin,row,a.id));
+    const all=Promise.all(requests);let finished=false,timer:NodeJS.Timeout|undefined;
+    try {
+      const results=await Promise.race([all,new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(Error('pool did not make progress')),3000);})]);
+      finished=true;expect(results.filter(r=>!r.duplicate)).toHaveLength(1);expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      if(timer)clearTimeout(timer);
+      if(!finished){
+        // Only terminate connections captured from this test's isolated pool, so a regression fails promptly.
+        const observer=new Pool({connectionString:process.env.META_FEEDBACK_TEST_DATABASE_URL});
+        await observer.query('SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE pid=ANY($1::int[])',[pids]);
+        await observer.end();await Promise.allSettled(requests);
+      }
+    }
+    expect((await repo.db.query('SELECT 1 AS responsive')).rows[0].responsive).toBe(1);
+  });
   it('uses native CRM fields and deduplicates one Meta Lead ID across inquiries', async () => {
     const b = { sourceType: 'instant_form', metaLeadId: '1234567890123456', leadGeneratedAt: new Date(Date.now()-7200000).toISOString(), consentConfirmed: true };
     const a = await ready('Lead', b);
@@ -121,9 +170,64 @@ describe.skipIf(!process.env.META_FEEDBACK_TEST_DATABASE_URL)('Manual Meta feedb
   });
   it('rechecks consent and attribution corrections just before dispatch', async () => {
     const a = await ready();
-    await expect(meta.send(admin, { ...row, visit_id: randomUUID() }, a.id)).rejects.toThrow('来源关联');
+    await repo.db.query('UPDATE marketing_inquiries SET visit_id=NULL WHERE id=$1',[row.id]);
+    await expect(meta.send(admin, row, a.id)).rejects.toThrow('来源关联');
+    await repo.db.query('UPDATE marketing_inquiries SET visit_id=$2 WHERE id=$1',[row.id,row.visit_id]);
     await repo.db.query('UPDATE marketing_visitors SET revoked_at=now() WHERE id=$1', [row.visitor_id]);
     await expect(meta.send(admin, row, a.id)).rejects.toThrow('撤回'); expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it('invalidates a ready event when correction commits while native permissions are pending', async () => {
+    process.env.META_FEEDBACK_MODE='test';
+    await repo.db.query('UPDATE marketing_inquiries SET conversation_id=101 WHERE id=$1',[row.id]);
+    const a=await ready();let unblock!:()=>void,loaded!:()=>void,calls=0;
+    const gate=new Promise<void>(r=>unblock=r),read=new Promise<void>(r=>loaded=r);
+    const cw:any={allowed:async()=>{if(++calls===1){loaded();await gate;}}};
+    const service=new MarketingService(repo,cw,{} as any,{} as any);
+    const sending=service.action(admin,'meta_send',{inquiryId:row.id,feedbackId:a.id});await read;
+    try { await service.action(admin,'correct_link',{id:row.id,visitorId:null,visitId:null,expectedRevision:row.revision,requestId:randomUUID(),reason:'Fictional wrong visitor association',evidenceRefs:['fixture:correction']}); }
+    finally { unblock(); }
+    expect(await sending).toMatchObject({duplicate:true,status:'review'});expect(fetchMock).not.toHaveBeenCalled();
+    expect((await repo.db.query('SELECT error_code FROM marketing_meta_feedback WHERE id=$1',[a.id])).rows[0].error_code).toBe('ATTRIBUTION_CHANGED');
+  });
+  it('does not let a source correction commit during an already-claimed upload', async () => {
+    process.env.META_FEEDBACK_MODE='test';const a=await ready();let sent!:()=>void,finish!:()=>void;
+    const started=new Promise<void>(r=>sent=r),gate=new Promise<void>(r=>finish=r);
+    fetchMock.mockImplementation(async()=>{sent();await gate;return new Response(JSON.stringify({events_received:1,fbtrace_id:'inflight_fixture'}));});
+    const sending=meta.send(admin,row,a.id);await started;
+    try {
+      const service=new MarketingService(repo,{} as any,{} as any,{} as any);
+      await expect(service.action(admin,'correct_link',{id:row.id,visitorId:null,expectedRevision:row.revision,requestId:randomUUID(),reason:'Fictional in-flight source correction',evidenceRefs:['fixture:correction']})).rejects.toThrow('正在发送');
+      expect((await repo.db.query('SELECT visitor_id FROM marketing_inquiries WHERE id=$1',[row.id])).rows[0].visitor_id).toBe(row.visitor_id);
+    } finally { finish();await sending; }
+  });
+  it.each([['test','accepted',0],['live','accepted',1],['test','dead_letter',5],['test','skipped',1]])('blocks legacy %s / %s work with %s prior attempts', async (mode,status,attempts) => {
+    process.env.META_FEEDBACK_MODE=String(mode);fetchMock.mockImplementation(async()=>new Response(JSON.stringify({events_received:1,fbtrace_id:'legacy_fixture'})));
+    const lead=await ready();await meta.send(admin,row,lead.id);fetchMock.mockClear();
+    await repo.db.query("INSERT INTO conversion_events(id,workspace_id,event_key,event_type,primary_source_lead_id,attribution_snapshot,occurred_at) VALUES('old-event','fixture','old-event','LeadQualified','lead-fixture','{}',now()-interval '5 minutes')");
+    await repo.db.query("INSERT INTO conversion_deliveries(id,workspace_id,conversion_event_id,event_key,event_type,provider,primary_source_lead_id,status,occurred_at,mode) VALUES('old-delivery','fixture','old-event','old-event','LeadQualified','meta','lead-fixture','accepted',now()-interval '5 minutes','live')");
+    await repo.db.query('UPDATE conversion_deliveries SET status=$1,attempt_count=$2 WHERE id=$3',[status,attempts,'old-delivery']);
+    const q=await ready('QualifiedLead');await expect(meta.send(admin,row,q.id)).rejects.toThrow('旧回传账本');expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it('records newly consented browser context in a new visit without changing prior consent', async () => {
+    const service=new MarketingService(repo,{} as any,{} as any,{} as any);
+    const input={siteId:'fixture',pageUrl:'https://example.invalid/product?fbclid=fictional_new_click',consent:{...grant,adStorage:'denied',adUserData:'denied'},policyVersion:'fixture'};
+    const denied=await service.session(input,'https://example.invalid','Fictional browser');
+    const deniedClaims=await service.claims(denied.sessionToken,'fixture');
+    const oldRow=(await repo.db.query('UPDATE marketing_inquiries SET visitor_id=$2,visit_id=$3,consent_id=$4 WHERE id=$1 RETURNING *',[row.id,denied.visitorId,denied.visitId,deniedClaims.consentId])).rows[0];
+    const allowed=await service.session({...input,consent:grant,visitorToken:denied.visitorToken!,visitToken:denied.visitToken!},'https://example.invalid','Fictional browser');
+    expect(allowed.visitorId).toBe(denied.visitorId);expect(allowed.visitId).not.toBe(denied.visitId);
+    expect((await repo.db.query('SELECT current_touch FROM marketing_visits WHERE id=$1',[denied.visitId])).rows[0].current_touch.browserCipher).toBeNull();
+    await expect(meta.prepare(admin,oldRow,prep())).rejects.toThrow('同意');
+    const claims=await service.claims(allowed.sessionToken,'fixture'),id=randomUUID();
+    const next=(await repo.db.query("INSERT INTO marketing_inquiries(id,site_id,account_id,source_submission_id,source_kind,request_hash,payload,visitor_id,visit_id,consent_id,lead_id,message_id) VALUES($1::uuid,'fixture',1,$1::text,'form','fixture',$2,$3,$4,$5,'lead-fixture',2) RETURNING *",[id,row.payload,allowed.visitorId,allowed.visitId,claims.consentId])).rows[0];
+    const a=await meta.prepare(admin,next,prep());
+    const payload=repo.unpack((await repo.db.query('SELECT payload FROM marketing_meta_feedback WHERE id=$1',[a.id])).rows[0].payload);
+    expect(payload.data[0].user_data.client_user_agent).toBe('Fictional browser');expect(payload.data[0].user_data.fbc).toContain('fictional_new_click');
+    const again=await service.session({...input,consent:grant,visitorToken:allowed.visitorToken!,visitToken:allowed.visitToken!},'https://example.invalid','Fictional browser');
+    expect(again.visitId).toBe(allowed.visitId);expect(fetchMock).not.toHaveBeenCalled();
+    const staleTab=await service.session({...input,consent:grant,visitorToken:denied.visitorToken!,visitToken:denied.visitToken!},'https://example.invalid','Fictional second tab');
+    expect(staleTab.visitId).not.toBe(denied.visitId);
+    expect(repo.unpack((await repo.db.query('SELECT current_touch FROM marketing_visits WHERE id=$1',[staleTab.visitId])).rows[0].current_touch.browserCipher).userAgent).toBe('Fictional second tab');
   });
   it('blocks missing consent, stale events, fake native IDs and future conversion time', async () => {
     await expect(meta.prepare(admin, { ...row, created_at: new Date(Date.now()-8*86400000) }, prep())).rejects.toThrow('7 天');

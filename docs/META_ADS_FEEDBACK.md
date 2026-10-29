@@ -59,6 +59,12 @@ Meta 当前 Using the API 文档明确说明，带 `test_event_code` 的事件�
 
 ## 旧 OKKI 网关如何替换
 
+从 v0.3.1 起，Inbox 内部的旧 `conversion_deliveries` 自动 Meta Live 路径不再发送：pending/retrying 转为 review，已有 dead_letter 也不能直接 replay。新入口的 Test 和 Live 都会检查旧账本；曾尝试发送、已受理或结果未知的记录必须先核对。关闭 `META_FEEDBACK_ENABLED` 不会重新启用旧 Live 路径；Mock 与其他广告渠道不受此约束。
+
+升级前暂停旧 Core API/worker 的处理并等待在途调用完成，保留所有账本；一起更新 API 和 worker，避免旧进程继续运行旧发送逻辑。不要删除旧记录或清零尝试次数来绕过防重。已受理或结果未知的事件不能重发；未曾发出的遗留任务也要先核对来源/阶段，再通过专门的人工迁移流程处理。本补丁不自动导入旧账本，不改变外部 OKKI 网关的开关。
+
+来源更正会把 ready/rejected 的手动事件转为待核对；发送占用期间暂不能更正，须先取得回执。恢复发送前需审核冻结载荷，不能将旧载荷自动改绑到另一访客。广告同意升级只为此后观察建立新的 visit，不反向修改之前的同意与访问记录。
+
 可替换的是独立的 **OKKI 状态轮询 → Meta 出站回传**。Inbox 仍可保留 OKKI 客户/商机同步；网站 Pixel、原生表单收件与其他渠道采集各自保留职责。
 
 本次代码不会停止旧定时器、删除 SQLite 或更改已有 Meta 数据。正式切换前需要：

@@ -1,0 +1,47 @@
+{
+  "version": "0.3.1",
+  "status": "v0.3.1 正式版 · 五项审查修复与增量回归",
+  "releaseDate": "2026-10-29",
+  "checks": [
+    {
+      "name": "五项审查问题回归",
+      "result": "通过",
+      "scope": "新增 14 项；真实隔离 PostgreSQL 与网络 Mock，无真实渠道发送",
+      "passed": true
+    },
+    {
+      "name": "自动化测试",
+      "result": "通过",
+      "scope": "185 项通过，Core 117 项未跳过数据库套件",
+      "passed": true
+    },
+    {
+      "name": "构建与依赖",
+      "result": "通过",
+      "scope": "完整构建/类型/部署包通过；根项目和桌面依赖审计 0 漏洞",
+      "passed": true
+    },
+    {
+      "name": "安全复查",
+      "result": "见随包报告",
+      "scope": "Ponytail + Codex + Semgrep CE + Gitleaks，详见随包复查报告和验证 JSON",
+      "passed": false
+    },
+    {
+      "name": "Windows 实机、资源与 8 小时观察",
+      "result": "未执行",
+      "scope": "本次未执行，不能标为通过",
+      "passed": false
+    },
+    {
+      "name": "真实渠道/CRM/Meta 验收",
+      "result": "未执行",
+      "scope": "广告保持 Mock，发布不部署服务或启用真实发送",
+      "passed": false
+    }
+  ],
+  "physicalWindows": false,
+  "providerAcceptance": false,
+  "testsPassed": 185,
+  "newRegressionCases": 14
+}

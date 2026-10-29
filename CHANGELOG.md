@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.1] - 2026-10-29
+
+- Reuse the current database transaction for Meta eligibility checks so six simultaneous sends cannot exhaust the shared pool.
+- Lock and reload the latest inquiry before dispatch. Source corrections invalidate unsent prepared events and cannot race an in-flight upload.
+- Check the legacy ledger in both Meta Test and Live modes. Quarantine legacy automatic Live Meta work and prohibit its replay; Mock and other advertising providers retain their existing paths.
+- Share strict Meta transport receipt validation, bounded requests, sanitized errors and uncertain-outcome handling across adapters.
+- Start a new visit when advertising consent is granted later, preserving old consent records and collecting only newly observed context.
+- Add PostgreSQL and Mock regressions for all five audited failures. No new schema migration is needed when upgrading from v0.3.0; replace Core API and worker together.
+- Keep advertising in Mock. Windows physical acceptance, the eight-hour soak and live provider acceptance are not claimed for this patch.
+
 ## [0.3.0] - 2026-10-28 (prerelease)
 
 - Integrated the audited desktop/office branch and manual Meta feedback branch without replacing account data, channel bindings or encryption keys.
@@ -36,3 +46,4 @@ Earlier v0.1 demonstration artifacts are historical reference material, not a pr
 [0.2.0]: https://github.com/akeparking/AKE-Inbox/releases/tag/v0.2.0
 
 [0.2.2]: https://github.com/akeparking/AKE-Inbox/releases/tag/v0.2.2
+[0.3.1]: https://github.com/akeparking/AKE-Inbox/releases/tag/v0.3.1

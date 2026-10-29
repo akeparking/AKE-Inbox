@@ -76,4 +76,4 @@ jobs:
         run: |
           set -euo pipefail
           gh release create "$RELEASE_TAG" --verify-tag --title "AKE Inbox $RELEASE_TAG · Windows 工作台" --notes-file docs/desktop/release-notes.md --draft "$RUNNER_TEMP/ake-release/"*
-          echo 'Draft only. Publish after the exact package passes Windows acceptance and the eight-hour soak.'
+          echo 'Draft only. Verify exact-commit CI and incremental acceptance per docs/VERSIONING.md; disclose unexecuted physical checks before publishing.'

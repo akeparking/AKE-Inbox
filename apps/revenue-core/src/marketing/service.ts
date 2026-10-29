@@ -38,7 +38,7 @@ export class MarketingService {
     const visitorId=prior?.kind==='visitor'&&prior.siteId===site.id?prior.visitorId:null;
     return this.repo.transaction('marketing-session:'+(visitorId||randomUUID()),async db=>{
       const consentId=randomUUID();await db.query('INSERT INTO marketing_consents(id,site_id,choices,policy_version) VALUES($1,$2,$3,$4)',[consentId,site.id,b.consent,b.policyVersion]);
-      const old=visitorId?(await db.query('SELECT * FROM marketing_visitors WHERE id=$1 AND site_id=$2 FOR UPDATE',[visitorId,site.id])).rows[0]:null;
+      const old=visitorId?(await db.query('SELECT v.*,c.choices AS prior_consent FROM marketing_visitors v JOIN marketing_consents c ON c.id=v.consent_id WHERE v.id=$1 AND v.site_id=$2 FOR UPDATE OF v',[visitorId,site.id])).rows[0]:null;
       if(b.consent.analytics!=='granted'||process.env.ATTRIBUTION_CAPTURE_ENABLED!=='true'){
         if(old&&b.consent.analytics!=='granted')await db.query('UPDATE marketing_visitors SET revoked_at=now(),consent_id=$2 WHERE id=$1',[old.id,consentId]);
         return {sessionToken:signToken({siteId:site.id,visitorId:null,visitId:null,consentId,exp:Date.now()+3600000}),visitorToken:null,visitToken:null,coverage:{analytics:b.consent.analytics,captureEnabled:process.env.ATTRIBUTION_CAPTURE_ENABLED==='true',storageAvailable:b.storageAvailable,history:'not_collected'}};
@@ -48,6 +48,10 @@ export class MarketingService {
       else await db.query('INSERT INTO marketing_visitors(id,site_id,first_touch,consent_id) VALUES($1,$2,$3,$4)',[vid,site.id,t,consentId]);
       const idle=Number(site.settings.sessionMinutes||30);
       let visit=priorVisit?.siteId===site.id&&priorVisit.visitorId===vid&&priorVisit.visitId?(await db.query("SELECT * FROM marketing_visits WHERE id=$1 AND visitor_id=$2 AND last_seen_at>now()-($3||' minutes')::interval",[priorVisit.visitId,vid,idle])).rows[0]:null;
+      // New permission applies to observations made now, never to the previous visit.
+      if (visit && (['adStorage','adUserData'] as const).some(k=>b.consent[k]==='granted'&&old?.prior_consent?.[k]!=='granted')) visit=null;
+      // A second tab may still carry the old visit token after another tab granted consent.
+      if (visit && t.browserCipher && !visit.current_touch.browserCipher) visit=null;
       if(visit&&Object.keys(t.utm).length&&hash(t.utm)!==hash(visit.current_touch.utm))visit=null;
       const visitId=visit?.id||randomUUID(),coverage={analytics:'granted',storageAvailable:b.storageAvailable,history:old&&!old.revoked_at?'observed':'starts_here',dwell:'visible_time_estimate'};
       if(visit)await db.query('UPDATE marketing_visits SET last_seen_at=now() WHERE id=$1',[visitId]);
@@ -380,11 +384,13 @@ export class MarketingService {
     if(b.visitorId||b.resolveConflict)this.admin(actor);
     return this.repo.actionOnce('marketing-correction:'+b.requestId,hash(b),async db=>{
       const latest=(await db.query('SELECT * FROM marketing_inquiries WHERE id=$1 FOR UPDATE',[row.id])).rows[0];if(latest.revision!==b.expectedRevision)throw new ConflictException('Refresh before correcting');
+      if ((await db.query("SELECT 1 FROM marketing_meta_feedback WHERE inquiry_id=$1 AND status='sending' LIMIT 1",[row.id])).rows.length) throw new ConflictException('Meta 回传正在发送，请先等待回执再更正来源');
       if(b.visitorId){const v=(await db.query('SELECT id FROM marketing_visitors WHERE id=$1 AND site_id=$2',[b.visitorId,row.site_id])).rows[0];if(!v)throw new ForbiddenException('Visitor belongs to another site');}
       if(b.visitId){const v=(await db.query('SELECT id FROM marketing_visits WHERE id=$1 AND visitor_id=$2 AND site_id=$3',[b.visitId,b.visitorId,row.site_id])).rows[0];if(!v)throw new ForbiddenException('Visit does not belong to this visitor and site');}
       const prev=(await db.query('SELECT id FROM marketing_links WHERE inquiry_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1',[row.id])).rows[0];
       await db.query('INSERT INTO marketing_links(id,inquiry_id,visitor_id,basis,evidence,actor_id,reason,supersedes) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[randomUUID(),row.id,b.visitorId,'human_review',JSON.stringify(b.evidenceRefs),String(actor.userId),b.reason,prev?.id||null]);await db.query("UPDATE marketing_inquiries SET visitor_id=$2,visit_id=$3,identity_state=CASE WHEN $4 THEN 'human_review' ELSE identity_state END,revision=revision+1 WHERE id=$1",[row.id,b.visitorId,b.visitId||null,b.resolveConflict===true]);
       await db.query("UPDATE conversion_deliveries SET status='skipped',skipped_reason='attribution_corrected_before_upload',updated_at=now() WHERE primary_source_lead_id=$1 AND status IN ('pending','retrying')",[row.lead_id]);
+      await db.query("UPDATE marketing_meta_feedback SET status='review',error_code='ATTRIBUTION_CHANGED',updated_at=now() WHERE inquiry_id=$1 AND status IN ('ready','rejected')",[row.id]);
       await this.repo.audit(String(actor.userId),'marketing.link_corrected',row.id,{reason:b.reason,evidenceRefs:b.evidenceRefs},db);return {ok:true,revision:latest.revision+1};
     });
   }

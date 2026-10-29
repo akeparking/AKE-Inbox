@@ -1,6 +1,6 @@
-# AKE Inbox Windows 客户端 · 0.2.2
+# AKE Inbox Windows 客户端 · 0.3.1
 
-Windows x64 接待工作台，连接办公室主机的 Inbox 服务。v0.2.2 为审查修复预发布版，须手动下载；正式版本更新检查不会推荐预发布版。下载本版 Release 中的 Windows ZIP，完整解压后运行 `AKE-Inbox.exe`。无需在接待员电脑安装 WSL、Docker 或配置模型 Key。当前使用未签名 ZIP，支持提示更新和手动更换版本目录。
+Windows x64 接待工作台，连接办公室主机的 Inbox 服务。v0.3.1 为审查修复正式版，可通过更新检查发现并手动下载。下载本版 Release 中的 Windows ZIP，完整解压后运行 `AKE-Inbox.exe`。无需在接待员电脑安装 WSL、Docker 或配置模型 Key。当前使用未签名 ZIP，支持提示更新和手动更换版本目录。
 
 公司 HTTPS 入口已预置，管理员可在设置中修改。两个业务入口分别登录；客户与知识页面按需加载。旧版本保存的地址优先于默认地址。
 
@@ -12,7 +12,7 @@ Windows x64 接待工作台，连接办公室主机的 Inbox 服务。v0.2.2 为
 
 APP 每天最多自动检查一次 GitHub Releases，也可手动检查。只推荐带 Windows ZIP 和校验清单的较新正式版本。升级前从托盘退出旧版，再完整解压新版到新目录；需要回退时退出新版并打开保留的旧目录。GitHub 不可达不影响接待。
 
-当前版本的实测和未完成项目以随包 `index.html` 为准。本轮服务端修复须同时更新办公室 Core 与 Chatwoot 定制文件，仅更换 Windows ZIP 不会应用服务端修复。后台需支持 reception protocol 2；本版兼容后台同时接受旧客户端心跳，无需数据库迁移或重置渠道绑定。参见 [部署说明](../docs/inbox-office-desktop.md)。
+当前版本的实测和未完成项目以随包 `index.html` 为准。本轮服务端修复须更新办公室 Core（含 worker），仅更换 Windows ZIP 不会应用服务端修复。后台需支持 reception protocol 2；本版兼容后台同时接受旧客户端心跳，从 v0.3.0 升级无需新增数据库迁移或重置渠道绑定；更早版本须先执行截至 009 的既有迁移。参见 [部署说明](../docs/inbox-office-desktop.md)。
 
 从仓库根目录在 WSL、Node 24+ 执行：
 
@@ -22,6 +22,6 @@ npm --prefix desktop test
 npm --prefix desktop run package:win
 ```
 
-可设置 `AKE_PACKAGE_OUTPUT` 把打包输出放到仓库外。发布流程在对应不可变版本标签上构建 Windows ZIP、源码 ZIP/TAR.GZ、离线 HTML、兼容信息和 SHA-256 清单，先创建草稿，完成 Windows 实机验收后发布。
+可设置 `AKE_PACKAGE_OUTPUT` 把打包输出放到仓库外。发布流程在对应不可变版本标签上构建 Windows ZIP、源码 ZIP/TAR.GZ、离线 HTML、兼容信息和 SHA-256 清单，先创建草稿，按 docs/VERSIONING.md 的增量验收政策检查本次变更和受影响路径后发布；未执行的实机验证明确标注。
 
 远程网页禁用 Node 集成，启用沙箱、上下文隔离和来源限制。访问远程主机必须使用 HTTPS，不绕过证书校验；页面没有读取本机文件或执行命令的权限。
