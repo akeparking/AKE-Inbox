@@ -9,7 +9,7 @@ Self-hosted B2B inquiry operations: connect conversations, reviewed customer req
 
 [版本与源码下载](https://github.com/akeparking/AKE-Inbox/releases) · [架构](docs/ARCHITECTURE.md) · [功能边界](docs/FEATURE_STATUS.md) · [路线图与竞品](docs/ROADMAP.md) · [贡献](CONTRIBUTING.md) · [安全](SECURITY.md)
 
-> **当前为 v0.3.0 接待与 Meta 回传预发布版。** 新增 OKKI Marketing 风格接待布局和人工审核的 Meta CAPI 回传账本；本次部署使用 Mock，未发送正式广告事件。保留 v0.2.2 权限、投递与登录修复。完整范围、验证及升级说明见[整体源码与发布报告](docs/RELEASE_REPORT_v0.3.0.md)。Windows 实机和 8 小时观察尚未完成，渠道配置不等于真实接通。
+> **当前正式版本为 [v0.3.0](https://github.com/akeparking/AKE-Inbox/releases/tag/v0.3.0)。** 新增 OKKI Marketing 风格接待布局和人工审核的 Meta CAPI 回传账本；本次部署使用 Mock，未发送正式广告事件。保留 v0.2.2 权限、投递与登录修复。2026-10-29 按项目负责人确认，沿用 v0.2.0 已走通的基础验收及本次增量回归结果转为正式发布。完整范围、历史验证记录及升级说明见[整体源码与发布报告](docs/RELEASE_REPORT_v0.3.0.md)。
 
 ## 解决什么问题
 
