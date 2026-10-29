@@ -121,6 +121,7 @@
       }
       const secondary=document.createElement('div');secondary.className='ake-nav-links ake-secondary';nav.append(secondary);
       const utilities=[['客户管理',`/ake/customers?account=${account}`],['渠道设置',`/ake/channels?account=${account}`]];
+      if(seats.crm_workspace_url)utilities.unshift(['CRM 工作台',seats.crm_workspace_url]);
       if(seats.marketing_enabled){utilities.push(['询盘管理',`/ake/marketing?account=${account}`]);if(seats.role==='administrator')utilities.push(['Meta 回传',`/ake/marketing?account=${account}&view=meta_feedback`]);}
       for(const [label,href] of utilities){secondary.append(link(label,href));const mobile=link(label,href);mobile.className='ake-mobile-link';primary.append(mobile);}
       document.body.append(nav);document.body.classList.add('ake-workspace');document.documentElement.lang='zh-CN';active();void attribution();window.dispatchEvent(new Event('ake:workspace-ready'));

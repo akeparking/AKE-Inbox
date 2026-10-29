@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.0] - 2026-10-29 (prerelease)
+
+- Extended the deployed v0.3.0 baseline with tenant-scoped companies, contacts, independent inquiry qualification, multiple projects, follow-ups, quote revisions and auditable outcomes.
+- Added verified personal sessions, organization membership, forced row security, tenant settings and isolated AI suggestions.
+- Added Meta/Google daily metrics, resumable synchronization, first/last-touch attribution and reviewed qualified/won feedback with durable duplicate prevention.
+- Added the `/sales/saas` office entry and signed integration ingress. The office remains the single business writer; the VPS relays the entry and runs isolated acceptance only.
+- Added `010_saas_crm.sql` after the v0.3.0 migrations and a dedicated SaaS CI job. Published versions and source archives remain immutable.
+- This is a Web/server and source release. Real ad-platform acceptance, external-company pilots and new Windows endurance measurements remain separate gates.
+
 ## [0.3.0] - 2026-10-28 (prerelease)
 
 - Integrated the audited desktop/office branch and manual Meta feedback branch without replacing account data, channel bindings or encryption keys.

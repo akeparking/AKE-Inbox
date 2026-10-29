@@ -115,6 +115,7 @@ services:
     volumes: ['./gateway.mjs:/gateway.mjs:ro']
     environment:
       OFFICE_READ_ONLY: '${OFFICE_READ_ONLY:-true}'
+      OFFICE_SAAS_HOST: '${OFFICE_SAAS_HOST:-}'
     ports: ['127.0.0.1:14720:14720', '127.0.0.1:14721:14721', '127.0.0.1:14722:14722']
     networks: [office, local-ui]
     restart: unless-stopped

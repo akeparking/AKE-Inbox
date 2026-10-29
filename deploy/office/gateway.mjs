@@ -10,7 +10,11 @@ for (const [listen, hostname, port] of routes) {
       && !['/sales/api/inbox/session', '/sales/api/inbox/logout'].includes(req.url.split('?')[0])) {
       res.writeHead(403, { 'content-type': 'application/json' }).end(JSON.stringify({ message: '本机为迁移预备环境，暂不允许修改或发送。' })); return;
     }
-    const upstream = http.request({ hostname, port, path: req.url, method: req.method, headers: req.headers, timeout: 60_000 }, response => {
+    const path = req.url.split('?')[0];
+    const isCrm = listen === 14721 && process.env.OFFICE_SAAS_HOST &&
+      (path === '/sales/saas' || path.startsWith('/sales/api/saas/') || path.startsWith('/sales/api/saas-hooks/'));
+    const upstream = http.request({ hostname: isCrm ? process.env.OFFICE_SAAS_HOST : hostname,
+      port: isCrm ? 3000 : port, path: req.url, method: req.method, headers: req.headers, timeout: 60_000 }, response => {
       res.writeHead(response.statusCode, response.headers); response.pipe(res);
     });
     upstream.on('timeout', () => upstream.destroy());

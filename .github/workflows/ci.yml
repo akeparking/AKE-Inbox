@@ -5,6 +5,42 @@ on:
 permissions:
   contents: read
 jobs:
+  saas:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci-fictional-data-only
+          POSTGRES_DB: saas_release_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d saas_release_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      SAAS_TEST_ADMIN_URL: postgresql://postgres:ci-fictional-data-only@127.0.0.1:5432/saas_release_test
+      DATABASE_URL: postgresql://saas_runtime:ci-fictional-runtime@127.0.0.1:5432/saas_release_test
+      SAAS_MODE: 'true'
+      SAAS_TEST_MODE: 'true'
+      STORE_DRIVER: postgres
+      SAAS_WORKER_ENABLED: 'false'
+      INBOX_V2_ENABLED: 'false'
+      MARKETING_ENABLED: 'false'
+      DEMO_SEED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --no-fund
+      - name: Generate an ephemeral test encryption key
+        run: echo "FIELD_ENCRYPTION_KEY=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+      - name: Create constrained test runtime role
+        run: psql "$SAAS_TEST_ADMIN_URL" -v ON_ERROR_STOP=1 -c "CREATE ROLE saas_runtime LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD 'ci-fictional-runtime'"
+      - run: npm run test:saas
   desktop:
     runs-on: ubuntu-latest
     steps:

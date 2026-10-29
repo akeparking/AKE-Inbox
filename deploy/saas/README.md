@@ -2,6 +2,14 @@
 
 本部署使用独立数据库与服务，不替换现有办公接待部署。需要现有受授权的 Chatwoot HTTPS 服务；一个 Account 只能绑定一个租户。所有原生附件和渠道凭据继续由 Chatwoot 管理。本库不修改 Chatwoot 数据表。
 
+## 现有办公室升级
+
+以 `NEXT_PUBLIC_BASE_PATH=/sales npm run build` 构建，再用 `scripts/build-demo-bundle.mjs` 生成运行包。`compose.office.yaml` 使用 `SAAS_BUNDLE`、`SAAS_PRIVATE_DIR`、`SAAS_NODE_IMAGE`；Node 镜像须为已验证的 Node 24 镜像并记录摘要。该部署仅让 Web 接入现有 `SAAS_OFFICE_NETWORK`；API 和数据库另有业务网络，出站适配器使用独立出站网络。
+
+在办公室配置中设 `OFFICE_SAAS_HOST=saas-workspace`，使新版 gateway 转发 `/sales/saas` 和两个 SaaS API 前缀。在原生 Chatwoot 环境中设 `AKE_CRM_WORKSPACE_URL=https://workspace.example.test/sales/saas` 可显示入口。VPS 继续转发 `/sales/*`，由现有 systemd 管理代理容器，保留单一业务写入端。先启动并验证 SaaS 服务，再切换办公室入口。
+
+公开 Webhook 入口为 `/sales/api/saas-hooks/intake/:slug`、`/sales/api/saas-hooks/meta-leads/:slug` 和 `/sales/api/saas-hooks/chatwoot/:slug/:token`，签名规则与以下 Core 接口相同。不要把私密回查令牌写入浏览器或源码。`runtime.env` 用非所有者角色；`owner.env` 仅供迁移和受控开通。
+
 ## 配置与启动
 
 在源码目录之外创建权限为 700 的私密目录，设置 `SAAS_PRIVATE_DIR`。以下文件权限设为 600，禁止提交 Git。

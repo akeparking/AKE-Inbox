@@ -88,7 +88,10 @@ class Api::V1::Accounts::AkeSeatsController < Api::V1::Accounts::BaseController
                    whatsapp_inbox_id: legacy.id, email_inbox_id: mail&.id, email: nil }
       end
     end
-    render json: { role: Current.account_user.role, seats: seats, marketing_enabled: ENV['AKE_MARKETING_ENABLED'] == 'true' && ENV['AKE_MARKETING_UI_ENABLED'] != 'false' }
+    crm_url = ENV['AKE_CRM_WORKSPACE_URL'].to_s
+    render json: { role: Current.account_user.role, seats: seats,
+                   crm_workspace_url: crm_url.start_with?('https://') ? crm_url : nil,
+                   marketing_enabled: ENV['AKE_MARKETING_ENABLED'] == 'true' && ENV['AKE_MARKETING_UI_ENABLED'] != 'false' }
   end
 
   def whatsapp
